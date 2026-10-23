@@ -14,7 +14,6 @@ const IGNORED_DIRS = new Set([
 
 const IGNORED_FILES = new Set([
   '.DS_Store',
-  'package-lock.json',
   'bun.lock',
   '.env',
   '.env.local',
