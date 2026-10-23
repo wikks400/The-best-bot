@@ -1,0 +1,6 @@
+{
+  "name": "NFT Group Alert - Multi-Chain Discord Bot",
+  "description": "Free multi-chain EVM NFT minting and purchase monitoring Discord bot with wallet group tracking, milestone alerts (4, 7, 12, 20, 35 wallets), and zero-cost hosting support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

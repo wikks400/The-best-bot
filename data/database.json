@@ -1,0 +1,190 @@
+{
+  "groups": [],
+  "wallets": [],
+  "networks": [
+    {
+      "id": "ethereum",
+      "name": "Ethereum",
+      "chainId": 1,
+      "rpcUrl": "https://ethereum-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://rpc.ankr.com/eth",
+        "https://cloudflare-eth.com"
+      ],
+      "explorerUrl": "https://etherscan.io",
+      "currencySymbol": "ETH",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 26244244,
+      "lastCheckedAt": 1792625040123,
+      "lastLatencyMs": 60,
+      "lastError": null,
+      "freeTierNotes": "LlamaNodes / Cloudflare public RPC. Rate limit ~20-50 req/s. Max block span recommended: 5-10 blocks."
+    },
+    {
+      "id": "base",
+      "name": "Base",
+      "chainId": 8453,
+      "rpcUrl": "https://base-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://base.llamarpc.com",
+        "https://1rpc.io/base"
+      ],
+      "explorerUrl": "https://basescan.org",
+      "currencySymbol": "ETH",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 52917846,
+      "lastCheckedAt": 1792625040254,
+      "lastLatencyMs": 48,
+      "lastError": null,
+      "freeTierNotes": "Coinbase official public RPC. Generous free tier with sub-second block time."
+    },
+    {
+      "id": "ink",
+      "name": "Ink",
+      "chainId": 57073,
+      "rpcUrl": "https://rpc-gel.inkonchain.com",
+      "fallbackRpcs": [
+        "https://rpc.inkonchain.com"
+      ],
+      "explorerUrl": "https://explorer.inkonchain.com",
+      "currencySymbol": "ETH",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 59126598,
+      "lastCheckedAt": 1792625040383,
+      "lastLatencyMs": 58,
+      "lastError": null,
+      "freeTierNotes": "Kraken Ink Superchain L2. Free official Gelato RPC, zero card needed."
+    },
+    {
+      "id": "arbitrum",
+      "name": "Arbitrum One",
+      "chainId": 42161,
+      "rpcUrl": "https://arbitrum-one-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://arbitrum.llamarpc.com",
+        "https://1rpc.io/arb"
+      ],
+      "explorerUrl": "https://arbiscan.io",
+      "currencySymbol": "ETH",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 517057665,
+      "lastCheckedAt": 1792625040753,
+      "lastLatencyMs": 48,
+      "lastError": null,
+      "freeTierNotes": "Offchain Labs official free public endpoint. Fast block queries."
+    },
+    {
+      "id": "optimism",
+      "name": "Optimism",
+      "chainId": 10,
+      "rpcUrl": "https://optimism-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://optimism.llamarpc.com"
+      ],
+      "explorerUrl": "https://optimistic.etherscan.io",
+      "currencySymbol": "ETH",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 158513132,
+      "lastCheckedAt": 1792625041878,
+      "lastLatencyMs": 1050,
+      "lastError": null,
+      "freeTierNotes": "OP Foundation public RPC. Free and reliable."
+    },
+    {
+      "id": "polygon",
+      "name": "Polygon",
+      "chainId": 137,
+      "rpcUrl": "https://polygon-bor-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://polygon.llamarpc.com"
+      ],
+      "explorerUrl": "https://polygonscan.com",
+      "currencySymbol": "POL",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 95946419,
+      "lastCheckedAt": 1792625042275,
+      "lastLatencyMs": 304,
+      "lastError": null,
+      "freeTierNotes": "Polygon Official RPC. Free public tier."
+    },
+    {
+      "id": "bsc",
+      "name": "BNB Smart Chain",
+      "chainId": 56,
+      "rpcUrl": "https://bsc-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://bsc-dataseed.binance.org"
+      ],
+      "explorerUrl": "https://bscscan.com",
+      "currencySymbol": "BNB",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 129025409,
+      "lastCheckedAt": 1792625042921,
+      "lastLatencyMs": 298,
+      "lastError": null,
+      "freeTierNotes": "Binance public dataseed RPC. Zero cost."
+    },
+    {
+      "id": "avalanche",
+      "name": "Avalanche C-Chain",
+      "chainId": 43114,
+      "rpcUrl": "https://avalanche-c-chain-rpc.publicnode.com",
+      "fallbackRpcs": [
+        "https://avalanche.public-rpc.com"
+      ],
+      "explorerUrl": "https://snowtrace.io",
+      "currencySymbol": "AVAX",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 98189361,
+      "lastCheckedAt": 1792625043321,
+      "lastLatencyMs": 323,
+      "lastError": null,
+      "freeTierNotes": "Ava Labs official C-Chain RPC. Free public tier."
+    },
+    {
+      "id": "robinhood",
+      "name": "Robinhood Chain",
+      "chainId": 4663,
+      "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+      "fallbackRpcs": [
+        "https://rpc.chain.robinhood.com"
+      ],
+      "explorerUrl": "https://explorer.chain.robinhood.com",
+      "currencySymbol": "ETH",
+      "isEnabled": true,
+      "isConnected": true,
+      "lastBlockChecked": 94679400,
+      "lastCheckedAt": 1792625053230,
+      "lastLatencyMs": 45,
+      "lastError": null,
+      "freeTierNotes": "Robinhood Official Mainnet L2 (Arbitrum Orbit, Chain ID 4663). Zero-card public endpoint active."
+    }
+  ],
+  "projects": {},
+  "activities": [],
+  "alerts": [],
+  "settings": {
+    "milestones": [
+      4,
+      7,
+      12,
+      20,
+      35
+    ],
+    "channelId": "1561062013336027286",
+    "roleId": "1562308693612040192",
+    "webhookUrl": "https://discord.com/api/webhooks/1562313131206901783/6myyqrPzz8woHZ5KKl6Lerk1oVaUkoz4pWn-rjStIW3nnyYjefa1TwT85DcxnthLH8Ab",
+    "episodeTimeoutHours": 24,
+    "maxAlertsPerEpisode": 5,
+    "isMonitoring": true,
+    "pollIntervalMs": 15000
+  }
+}
