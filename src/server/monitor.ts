@@ -2,6 +2,7 @@ import { db } from './db.ts';
 import { NetworkConfig, NFTActivityRecord } from '../types/index.ts';
 import { getOrDiscoverProject } from './metadata.ts';
 import { evaluateAndDispatchAlerts } from './alerter.ts';
+import { testRpcEndpoint } from './chains.ts';
 
 // Standard EVM Signatures
 // ERC-721 / ERC-20 Transfer(address,address,uint256)
@@ -38,6 +39,7 @@ export class BlockchainMonitor {
   private isRunning = false;
   private timer: NodeJS.Timeout | null = null;
   private backoffMap: Map<string, number> = new Map();
+  private errorCountMap: Map<string, number> = new Map();
 
   constructor() {
     // Monitor instance
@@ -190,29 +192,63 @@ export class BlockchainMonitor {
         lastError: null,
       });
 
-      // Clear backoff on success
+      // Clear backoff and error count on success
       this.backoffMap.delete(network.id);
+      this.errorCountMap.delete(network.id);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const isAuth =
+        errorMsg.includes('Unauthorized') ||
+        errorMsg.includes('401') ||
+        errorMsg.includes('403') ||
+        errorMsg.includes('API key') ||
+        errorMsg.includes('authenticate');
+
       console.warn(`[Monitor] Network ${network.name} poll error: ${errorMsg}`);
 
-      // Apply exponential backoff (30s)
-      this.backoffMap.set(network.id, Date.now() + 30000);
-
-      // Try fallback RPC if available
+      // Try active validation of fallback RPCs
       let fallbackSuccess = false;
       if (network.fallbackRpcs && network.fallbackRpcs.length > 0) {
-        const nextFallback = network.fallbackRpcs[0];
-        console.log(`[Monitor] Trying fallback RPC for ${network.name}: ${nextFallback}`);
-        db.updateNetwork(network.id, {
-          rpcUrl: nextFallback,
-          fallbackRpcs: [...network.fallbackRpcs.slice(1), network.rpcUrl],
-          lastError: `Failover to fallback RPC: ${errorMsg}`,
-        });
-        fallbackSuccess = true;
+        for (const candidate of network.fallbackRpcs) {
+          if (!candidate || candidate === network.rpcUrl) continue;
+
+          try {
+            const check = await testRpcEndpoint(candidate, network.chainId, 5000);
+            if (check.success) {
+              console.log(`[Monitor] Verified healthy fallback for ${network.name}: ${candidate} (Chain ID: ${check.chainId}, Block: ${check.blockNumber})`);
+
+              const updatedFallbacks = network.fallbackRpcs.filter(f => f !== candidate);
+              // Only re-queue previous RPC if it wasn't an auth/forbidden error
+              if (!isAuth && !network.rpcUrl.includes('ankr.com') && !network.rpcUrl.includes('cloudflare')) {
+                updatedFallbacks.push(network.rpcUrl);
+              }
+
+              db.updateNetwork(network.id, {
+                rpcUrl: candidate,
+                fallbackRpcs: updatedFallbacks,
+                isConnected: true,
+                lastError: null,
+                lastCheckedAt: Date.now(),
+              });
+
+              this.backoffMap.delete(network.id);
+              this.errorCountMap.delete(network.id);
+              fallbackSuccess = true;
+              break;
+            }
+          } catch {
+            // candidate failed, continue checking others
+          }
+        }
       }
 
       if (!fallbackSuccess) {
+        // Increment consecutive error count and apply exponential backoff (15s -> 30s -> 60s -> 120s max)
+        const count = (this.errorCountMap.get(network.id) || 0) + 1;
+        this.errorCountMap.set(network.id, count);
+        const backoffMs = Math.min(120000, 15000 * Math.pow(2, Math.min(count - 1, 3)));
+        this.backoffMap.set(network.id, Date.now() + backoffMs);
+
         db.updateNetwork(network.id, {
           isConnected: false,
           lastError: errorMsg,
@@ -246,7 +282,10 @@ export class BlockchainMonitor {
       });
 
       if (!res.ok) return [];
-      const json = await res.json() as { result?: RawLog[] };
+      const json = (await res.json()) as { result?: RawLog[]; error?: { message: string } };
+      if (json.error) {
+        return [];
+      }
       return json.result || [];
     } catch {
       return [];

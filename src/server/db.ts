@@ -10,6 +10,7 @@ import {
   AlertSettings,
   GroupActivitySummary
 } from '../types/index.ts';
+import { resolveNetworkRpcs } from './chains.ts';
 
 interface DatabaseSchema {
   groups: WalletGroup[];
@@ -36,13 +37,23 @@ const DEFAULT_SETTINGS: AlertSettings = {
 const DEFAULT_GROUPS: WalletGroup[] = [];
 const DEFAULT_WALLETS: TrackedWallet[] = [];
 
+const ethRpcs = resolveNetworkRpcs('ethereum', 1);
+const baseRpcs = resolveNetworkRpcs('base', 8453);
+const inkRpcs = resolveNetworkRpcs('ink', 57073);
+const arbRpcs = resolveNetworkRpcs('arbitrum', 42161);
+const opRpcs = resolveNetworkRpcs('optimism', 10);
+const polyRpcs = resolveNetworkRpcs('polygon', 137);
+const bscRpcs = resolveNetworkRpcs('bsc', 56);
+const avaxRpcs = resolveNetworkRpcs('avalanche', 43114);
+const rhRpcs = resolveNetworkRpcs('robinhood', 4663);
+
 const DEFAULT_NETWORKS: NetworkConfig[] = [
   {
     id: 'ethereum',
     name: 'Ethereum',
     chainId: 1,
-    rpcUrl: process.env.RPC_URL_ETHEREUM || process.env.ETHEREUM_RPC_URL || process.env.RPC_URL || 'https://eth.llamarpc.com',
-    fallbackRpcs: ['https://rpc.ankr.com/eth', 'https://cloudflare-eth.com'],
+    rpcUrl: ethRpcs.rpcUrl,
+    fallbackRpcs: ethRpcs.fallbackRpcs,
     explorerUrl: 'https://etherscan.io',
     currencySymbol: 'ETH',
     isEnabled: true,
@@ -51,7 +62,7 @@ const DEFAULT_NETWORKS: NetworkConfig[] = [
     lastCheckedAt: null,
     lastLatencyMs: null,
     lastError: null,
-    freeTierNotes: 'LlamaNodes / Cloudflare public RPC. Rate limit ~20-50 req/s. Max block span recommended: 5-10 blocks.',
+    freeTierNotes: 'MEV Blocker / 1RPC / Tenderly public RPC. Zero auth required.',
   },
   {
     id: 'base',
@@ -121,8 +132,8 @@ const DEFAULT_NETWORKS: NetworkConfig[] = [
     id: 'polygon',
     name: 'Polygon',
     chainId: 137,
-    rpcUrl: process.env.RPC_URL_POLYGON || process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
-    fallbackRpcs: ['https://polygon.llamarpc.com'],
+    rpcUrl: polyRpcs.rpcUrl,
+    fallbackRpcs: polyRpcs.fallbackRpcs,
     explorerUrl: 'https://polygonscan.com',
     currencySymbol: 'POL',
     isEnabled: true,
@@ -131,14 +142,14 @@ const DEFAULT_NETWORKS: NetworkConfig[] = [
     lastCheckedAt: null,
     lastLatencyMs: null,
     lastError: null,
-    freeTierNotes: 'Polygon Official RPC. Free public tier.',
+    freeTierNotes: '1RPC / Tenderly / PublicNode official Bor RPC. Free public tier.',
   },
   {
     id: 'bsc',
     name: 'BNB Smart Chain',
     chainId: 56,
-    rpcUrl: process.env.RPC_URL_BSC || process.env.BNB_CHAIN_RPC_URL || 'https://binance.llamarpc.com',
-    fallbackRpcs: ['https://bsc-dataseed.binance.org'],
+    rpcUrl: bscRpcs.rpcUrl,
+    fallbackRpcs: bscRpcs.fallbackRpcs,
     explorerUrl: 'https://bscscan.com',
     currencySymbol: 'BNB',
     isEnabled: true,
@@ -153,8 +164,8 @@ const DEFAULT_NETWORKS: NetworkConfig[] = [
     id: 'avalanche',
     name: 'Avalanche C-Chain',
     chainId: 43114,
-    rpcUrl: process.env.RPC_URL_AVALANCHE || process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-    fallbackRpcs: ['https://avalanche.public-rpc.com'],
+    rpcUrl: avaxRpcs.rpcUrl,
+    fallbackRpcs: avaxRpcs.fallbackRpcs,
     explorerUrl: 'https://snowtrace.io',
     currencySymbol: 'AVAX',
     isEnabled: true,
@@ -169,8 +180,8 @@ const DEFAULT_NETWORKS: NetworkConfig[] = [
     id: 'robinhood',
     name: 'Robinhood Chain',
     chainId: 4663,
-    rpcUrl: process.env.RPC_URL_ROBINHOOD || process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
-    fallbackRpcs: ['https://rpc.chain.robinhood.com'],
+    rpcUrl: rhRpcs.rpcUrl,
+    fallbackRpcs: rhRpcs.fallbackRpcs,
     explorerUrl: 'https://explorer.chain.robinhood.com',
     currencySymbol: 'ETH',
     isEnabled: true,
@@ -188,7 +199,15 @@ export class Database {
   private data: DatabaseSchema;
 
   constructor(filePath?: string) {
-    this.filePath = filePath || process.env.DATABASE_PATH || './data/nft-alert.json';
+    if (filePath) {
+      this.filePath = filePath;
+    } else if (process.env.DATABASE_PATH) {
+      this.filePath = process.env.DATABASE_PATH;
+    } else if (fs.existsSync('./data/database.json')) {
+      this.filePath = './data/database.json';
+    } else {
+      this.filePath = './data/nft-alert.json';
+    }
     this.data = this.load();
   }
 
@@ -202,11 +221,23 @@ export class Database {
       if (fs.existsSync(this.filePath)) {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
         const parsed = JSON.parse(raw);
-        // Ensure defaults if missing keys
+
+        // Dynamically reconcile and apply environment variables & filter defunct RPCs
+        const rawNetworks: NetworkConfig[] = parsed.networks || DEFAULT_NETWORKS;
+        const reconciledNetworks = rawNetworks.map((net) => {
+          const { rpcUrl, fallbackRpcs } = resolveNetworkRpcs(net.id, net.chainId, net.rpcUrl, net.fallbackRpcs);
+          return {
+            ...net,
+            rpcUrl,
+            fallbackRpcs,
+          };
+        });
+
+        // Ensure defaults if missing keys, preserving all existing user data
         return {
           groups: parsed.groups || DEFAULT_GROUPS,
           wallets: parsed.wallets || DEFAULT_WALLETS,
-          networks: parsed.networks || DEFAULT_NETWORKS,
+          networks: reconciledNetworks,
           projects: parsed.projects || {},
           activities: parsed.activities || [],
           alerts: parsed.alerts || [],

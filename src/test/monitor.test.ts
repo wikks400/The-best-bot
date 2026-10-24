@@ -343,6 +343,42 @@ async function runTestSuite() {
   }
   assert(clearErrorCaught, 'Throws descriptive error when clearing non-existent group');
 
+  // Test 9: RPC Configuration & Live Chain ID Connectivity
+  console.log('\nTest Suite 9: RPC Configuration & Fallback Engine');
+  const { resolveNetworkRpcs, testRpcEndpoint, DEFUNCT_PUBLIC_RPCS } = await import('../server/chains.ts');
+
+  // 9.1 Verify resolveNetworkRpcs strips defunct endpoints
+  const ethResolved = resolveNetworkRpcs('ethereum', 1, 'https://rpc.ankr.com/eth', ['https://cloudflare-eth.com', 'https://1rpc.io/eth']);
+  assert(!DEFUNCT_PUBLIC_RPCS.has(ethResolved.rpcUrl), 'Ethereum primary RPC is not defunct');
+  assert(!ethResolved.fallbackRpcs.includes('https://rpc.ankr.com/eth'), 'Strips unauthenticated ankr from fallbacks');
+  assert(!ethResolved.fallbackRpcs.includes('https://cloudflare-eth.com'), 'Strips defunct cloudflare from fallbacks');
+  assert(ethResolved.fallbackRpcs.includes('https://1rpc.io/eth'), 'Retains valid working fallbacks');
+
+  // 9.2 Verify Polygon resolution
+  const polyResolved = resolveNetworkRpcs('polygon', 137, 'https://polygon-rpc.com', ['https://polygon.llamarpc.com']);
+  assert(!DEFUNCT_PUBLIC_RPCS.has(polyResolved.rpcUrl), 'Polygon primary RPC is not defunct');
+  assert(!polyResolved.fallbackRpcs.includes('https://polygon-rpc.com'), 'Strips dead polygon-rpc.com');
+  assert(!polyResolved.fallbackRpcs.includes('https://polygon.llamarpc.com'), 'Strips dead polygon.llamarpc.com');
+
+  // 9.3 Live RPC connectivity test for Ethereum (Chain ID 1)
+  console.log('  Testing live Ethereum endpoint...');
+  const ethCheck = await testRpcEndpoint('https://rpc.mevblocker.io', 1, 6000);
+  assert(ethCheck.success, 'Ethereum live RPC connected successfully');
+  assert(ethCheck.chainId === 1, 'Ethereum live RPC confirmed Chain ID 1');
+  assert(ethCheck.blockNumber > 20000000, 'Ethereum block number is valid');
+
+  // 9.4 Live RPC connectivity test for Polygon (Chain ID 137)
+  console.log('  Testing live Polygon endpoint...');
+  const polyCheck = await testRpcEndpoint('https://1rpc.io/matic', 137, 6000);
+  assert(polyCheck.success, 'Polygon live RPC connected successfully');
+  assert(polyCheck.chainId === 137, 'Polygon live RPC confirmed Chain ID 137');
+  assert(polyCheck.blockNumber > 50000000, 'Polygon block number is valid');
+
+  // 9.5 Auth error detection test
+  const authCheck = await testRpcEndpoint('https://rpc.ankr.com/eth', 1, 6000);
+  assert(!authCheck.success, 'Correctly flags unauthenticated ankr as failure');
+  assert(Boolean(authCheck.isAuthError), 'Correctly identifies authentication error');
+
   // Clean up test DB
   if (fs.existsSync(testDbPath)) {
     fs.unlinkSync(testDbPath);

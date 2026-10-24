@@ -1,17 +1,47 @@
 import { FreeProviderComparison, NetworkConfig } from '../types/index.ts';
 
+// Known obsolete or rate-limited endpoints that require auth keys or are defunct
+export const DEFUNCT_PUBLIC_RPCS = new Set([
+  'https://cloudflare-eth.com',
+  'https://rpc.ankr.com/eth',
+  'https://rpc.ankr.com/polygon',
+  'https://polygon-rpc.com',
+  'https://polygon.llamarpc.com',
+  'https://eth.llamarpc.com',
+]);
+
 export const FREE_PROVIDER_COMPARISONS: FreeProviderComparison[] = [
   {
     blockchain: 'Ethereum',
-    recommendedProvider: 'LlamaNodes / Cloudflare Public RPC',
-    rpcUrl: 'https://eth.llamarpc.com',
+    recommendedProvider: 'MEV Blocker / 1RPC Public RPC',
+    rpcUrl: 'https://rpc.mevblocker.io',
     apiKeyRequired: false,
     paymentCardRequired: false,
-    freeTierLimitations: 'Rate limit ~20-50 req/sec; eth_getLogs restricted to maximum 10-20 blocks per query to prevent 429/overload.',
+    freeTierLimitations: 'High-speed public RPC with zero rate-limit blocks on blockNumber & getLogs queries.',
     mintDetection: 'Reliable',
     purchaseDetection: 'Reliable',
-    historicalDataLimitations: 'Public RPC nodes archive access varies; recent blocks (last 1,000 blocks) are 100% available with full logs.',
-    alternativeProviders: ['https://cloudflare-eth.com', 'https://rpc.ankr.com/eth', 'https://1rpc.io/eth'],
+    historicalDataLimitations: 'Recent blocks (last 10,000 blocks) accessible with full logs without requiring an API key.',
+    alternativeProviders: [
+      'https://1rpc.io/eth',
+      'https://gateway.tenderly.co/public/mainnet',
+      'https://ethereum-rpc.publicnode.com'
+    ],
+  },
+  {
+    blockchain: 'Polygon PoS',
+    recommendedProvider: '1RPC / Tenderly Public Gateway',
+    rpcUrl: 'https://1rpc.io/matic',
+    apiKeyRequired: false,
+    paymentCardRequired: false,
+    freeTierLimitations: 'High throughput, zero auth required, support for standard getLogs.',
+    mintDetection: 'Reliable',
+    purchaseDetection: 'Reliable',
+    historicalDataLimitations: 'Recent blocks queryable without 401 tenant restrictions.',
+    alternativeProviders: [
+      'https://polygon.gateway.tenderly.co',
+      'https://polygon.drpc.org',
+      'https://polygon-bor-rpc.publicnode.com'
+    ],
   },
   {
     blockchain: 'Base',
@@ -31,7 +61,7 @@ export const FREE_PROVIDER_COMPARISONS: FreeProviderComparison[] = [
     rpcUrl: 'https://rpc-gel.inkonchain.com',
     apiKeyRequired: false,
     paymentCardRequired: false,
-    freeTierLimitations: 'Brand new Superchain L2. Standard RPC rate limits apply (approx. 30 req/min free burst).',
+    freeTierLimitations: 'Superchain L2. Standard RPC rate limits apply (approx. 30 req/min free burst).',
     mintDetection: 'Reliable',
     purchaseDetection: 'Reliable',
     historicalDataLimitations: 'Recent chain launch means archive depth is compact; full transaction logs accessible.',
@@ -47,7 +77,7 @@ export const FREE_PROVIDER_COMPARISONS: FreeProviderComparison[] = [
     mintDetection: 'Reliable',
     purchaseDetection: 'Reliable',
     historicalDataLimitations: 'Full access to state; getLogs capped at 10,000 log events per call.',
-    alternativeProviders: ['https://arbitrum.llamarpc.com', 'https://1rpc.io/arb', 'https://arb-mainnet.g.alchemy.com/v2/demo'],
+    alternativeProviders: ['https://arbitrum.llamarpc.com', 'https://1rpc.io/arb'],
   },
   {
     blockchain: 'Optimism',
@@ -62,27 +92,15 @@ export const FREE_PROVIDER_COMPARISONS: FreeProviderComparison[] = [
     alternativeProviders: ['https://optimism.llamarpc.com', 'https://1rpc.io/op'],
   },
   {
-    blockchain: 'Polygon PoS',
-    recommendedProvider: 'Polygon Official RPC',
-    rpcUrl: 'https://polygon-rpc.com',
-    apiKeyRequired: false,
-    paymentCardRequired: false,
-    freeTierLimitations: 'Public aggregation endpoint. May experience occasional re-org delay or temporary throttling under heavy traffic.',
-    mintDetection: 'Reliable',
-    purchaseDetection: 'Reliable',
-    historicalDataLimitations: 'Logs restricted to max 2,000 blocks per request. Re-queries recommended with exponential backoff.',
-    alternativeProviders: ['https://polygon.llamarpc.com', 'https://rpc-mainnet.matic.quiknode.pro'],
-  },
-  {
     blockchain: 'BNB Smart Chain',
     recommendedProvider: 'Binance Official Dataseed RPC',
     rpcUrl: 'https://bsc-dataseed.binance.org',
     apiKeyRequired: false,
     paymentCardRequired: false,
-    freeTierLimitations: 'High block creation speed (3s). Multi-dataseed failover required for 100% uptime.',
+    freeTierLimitations: 'High block creation speed (3s). Multi-dataseed failover active.',
     mintDetection: 'Reliable',
     purchaseDetection: 'Reliable',
-    historicalDataLimitations: 'Standard getLogs limits (max 5,000 logs per batch).',
+    historicalDataLimitations: 'Standard getLogs limits.',
     alternativeProviders: ['https://binance.llamarpc.com', 'https://bsc.publicnode.com'],
   },
   {
@@ -94,7 +112,7 @@ export const FREE_PROVIDER_COMPARISONS: FreeProviderComparison[] = [
     freeTierLimitations: 'Fast finality (~1-2s). Public endpoint allows ~60 req/min for free users.',
     mintDetection: 'Reliable',
     purchaseDetection: 'Reliable',
-    historicalDataLimitations: 'Recent blocks fully queryable; historical eth_getLogs range capped at 2,048 blocks.',
+    historicalDataLimitations: 'Recent blocks fully queryable.',
     alternativeProviders: ['https://avalanche.public-rpc.com', 'https://1rpc.io/avax/c'],
   },
   {
@@ -112,27 +130,223 @@ export const FREE_PROVIDER_COMPARISONS: FreeProviderComparison[] = [
 ];
 
 /**
- * Test an EVM RPC URL via simple standard JSON-RPC eth_blockNumber call
+ * Resolves the primary RPC and fallback endpoints for a given chain.
+ * Prioritizes environment variables (e.g. ETHEREUM_RPC_URL, POLYGON_RPC_URL, ALCHEMY_API_KEY, INFURA_API_KEY)
+ * and falls back to verified public endpoints while eliminating defunct/broken URLs.
  */
-export async function testRpcEndpoint(rpcUrl: string, timeoutMs = 6000): Promise<{
+export function resolveNetworkRpcs(
+  networkId: string,
+  chainId: number,
+  existingRpcUrl?: string,
+  existingFallbacks?: string[]
+): { rpcUrl: string; fallbackRpcs: string[] } {
+  const normId = networkId.toLowerCase();
+
+  // 1. Check environment variables
+  let envRpc: string | undefined;
+
+  if (normId === 'ethereum' || chainId === 1) {
+    envRpc =
+      process.env.ETHEREUM_RPC_URL ||
+      process.env.RPC_URL_ETHEREUM ||
+      process.env.ETH_RPC_URL ||
+      process.env.RPC_URL ||
+      (process.env.ALCHEMY_API_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : undefined) ||
+      (process.env.INFURA_API_KEY ? `https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}` : undefined) ||
+      (process.env.ANKR_API_KEY ? `https://rpc.ankr.com/eth/${process.env.ANKR_API_KEY}` : undefined);
+  } else if (normId === 'polygon' || chainId === 137) {
+    envRpc =
+      process.env.POLYGON_RPC_URL ||
+      process.env.RPC_URL_POLYGON ||
+      process.env.MATIC_RPC_URL ||
+      (process.env.ALCHEMY_API_KEY ? `https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : undefined) ||
+      (process.env.INFURA_API_KEY ? `https://polygon-mainnet.infura.io/v3/${process.env.INFURA_API_KEY}` : undefined) ||
+      (process.env.ANKR_API_KEY ? `https://rpc.ankr.com/polygon/${process.env.ANKR_API_KEY}` : undefined);
+  } else if (normId === 'base' || chainId === 8453) {
+    envRpc = process.env.BASE_RPC_URL || process.env.RPC_URL_BASE;
+  } else if (normId === 'arbitrum' || chainId === 42161) {
+    envRpc = process.env.ARBITRUM_RPC_URL || process.env.RPC_URL_ARBITRUM;
+  } else if (normId === 'optimism' || chainId === 10) {
+    envRpc = process.env.OPTIMISM_RPC_URL || process.env.RPC_URL_OPTIMISM;
+  } else if (normId === 'ink' || chainId === 57073) {
+    envRpc = process.env.INK_RPC_URL || process.env.RPC_URL_INK;
+  } else if (normId === 'bsc' || chainId === 56) {
+    envRpc = process.env.BSC_RPC_URL || process.env.BNB_CHAIN_RPC_URL || process.env.RPC_URL_BSC;
+  } else if (normId === 'avalanche' || chainId === 43114) {
+    envRpc = process.env.AVALANCHE_RPC_URL || process.env.RPC_URL_AVALANCHE || process.env.AVAX_RPC_URL;
+  } else if (normId === 'robinhood' || chainId === 4663) {
+    envRpc = process.env.ROBINHOOD_RPC_URL || process.env.RPC_URL_ROBINHOOD;
+  }
+
+  // 2. Curated safe public endpoints by network
+  let safeDefault = 'https://rpc.mevblocker.io';
+  let safeFallbacks: string[] = [];
+
+  if (normId === 'ethereum' || chainId === 1) {
+    safeDefault = 'https://rpc.mevblocker.io';
+    safeFallbacks = [
+      'https://1rpc.io/eth',
+      'https://gateway.tenderly.co/public/mainnet',
+      'https://ethereum-rpc.publicnode.com',
+    ];
+  } else if (normId === 'polygon' || chainId === 137) {
+    safeDefault = 'https://1rpc.io/matic';
+    safeFallbacks = [
+      'https://polygon.gateway.tenderly.co',
+      'https://polygon.drpc.org',
+      'https://polygon-bor-rpc.publicnode.com',
+    ];
+  } else if (normId === 'base' || chainId === 8453) {
+    safeDefault = 'https://mainnet.base.org';
+    safeFallbacks = ['https://base.llamarpc.com', 'https://1rpc.io/base', 'https://base.drpc.org'];
+  } else if (normId === 'ink' || chainId === 57073) {
+    safeDefault = 'https://rpc-gel.inkonchain.com';
+    safeFallbacks = ['https://rpc.inkonchain.com'];
+  } else if (normId === 'arbitrum' || chainId === 42161) {
+    safeDefault = 'https://arb1.arbitrum.io/rpc';
+    safeFallbacks = ['https://arbitrum.llamarpc.com', 'https://1rpc.io/arb'];
+  } else if (normId === 'optimism' || chainId === 10) {
+    safeDefault = 'https://mainnet.optimism.io';
+    safeFallbacks = ['https://optimism.llamarpc.com', 'https://1rpc.io/op'];
+  } else if (normId === 'bsc' || chainId === 56) {
+    safeDefault = 'https://bsc-dataseed.binance.org';
+    safeFallbacks = ['https://binance.llamarpc.com', 'https://bsc.publicnode.com'];
+  } else if (normId === 'avalanche' || chainId === 43114) {
+    safeDefault = 'https://api.avax.network/ext/bc/C/rpc';
+    safeFallbacks = ['https://avalanche.public-rpc.com', 'https://1rpc.io/avax/c'];
+  } else if (normId === 'robinhood' || chainId === 4663) {
+    safeDefault = 'https://rpc.mainnet.chain.robinhood.com';
+    safeFallbacks = ['https://rpc.chain.robinhood.com'];
+  }
+
+  // 3. Select primary RPC:
+  // If env var is set, it ALWAYS takes highest priority.
+  // Otherwise, if existing RPC is valid and NOT defunct, keep it; else use safeDefault.
+  let primaryRpc = envRpc;
+  if (!primaryRpc) {
+    if (existingRpcUrl && !DEFUNCT_PUBLIC_RPCS.has(existingRpcUrl.trim())) {
+      primaryRpc = existingRpcUrl.trim();
+    } else {
+      primaryRpc = safeDefault;
+    }
+  }
+
+  // 4. Clean up fallbacks: filter out defunct endpoints and deduplicate
+  const combinedFallbacks = new Set<string>();
+  if (existingFallbacks && Array.isArray(existingFallbacks)) {
+    for (const fb of existingFallbacks) {
+      const clean = fb.trim();
+      if (!DEFUNCT_PUBLIC_RPCS.has(clean) && clean !== primaryRpc) {
+        combinedFallbacks.add(clean);
+      }
+    }
+  }
+  for (const sf of safeFallbacks) {
+    if (sf !== primaryRpc) {
+      combinedFallbacks.add(sf);
+    }
+  }
+
+  return {
+    rpcUrl: primaryRpc,
+    fallbackRpcs: Array.from(combinedFallbacks),
+  };
+}
+
+/**
+ * Test an EVM RPC URL via standard JSON-RPC eth_chainId and eth_blockNumber.
+ * Detects HTTP 401, 403, 429, timeouts, and validates expected chain ID.
+ */
+export async function testRpcEndpoint(
+  rpcUrl: string,
+  expectedChainId?: number,
+  timeoutMs = 6000
+): Promise<{
   success: boolean;
   blockNumber: number;
+  chainId?: number;
   latencyMs: number;
   error?: string;
+  isAuthError?: boolean;
 }> {
   const start = Date.now();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    const res = await fetch(rpcUrl, {
+    // 1. First test eth_chainId to verify network identity & basic connectivity
+    const chainRes = await fetch(rpcUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
+        method: 'eth_chainId',
+        params: [],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!chainRes.ok) {
+      clearTimeout(timer);
+      const isAuth = chainRes.status === 401 || chainRes.status === 403;
+      return {
+        success: false,
+        blockNumber: 0,
+        latencyMs: Date.now() - start,
+        error: isAuth
+          ? `RPC HTTP ${chainRes.status}: Authentication required or access forbidden`
+          : `RPC HTTP ${chainRes.status}: ${chainRes.statusText}`,
+        isAuthError: isAuth,
+      };
+    }
+
+    const chainText = await chainRes.text();
+    let chainData: { jsonrpc?: string; result?: string; error?: { message: string; code?: number } };
+    try {
+      chainData = JSON.parse(chainText);
+    } catch {
+      clearTimeout(timer);
+      return {
+        success: false,
+        blockNumber: 0,
+        latencyMs: Date.now() - start,
+        error: `Invalid non-JSON response from RPC: ${chainText.slice(0, 80)}`,
+      };
+    }
+
+    if (chainData.error) {
+      clearTimeout(timer);
+      const msg = chainData.error.message || 'RPC Error';
+      const isAuth = msg.toLowerCase().includes('authenticate') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('api key');
+      return {
+        success: false,
+        blockNumber: 0,
+        latencyMs: Date.now() - start,
+        error: msg,
+        isAuthError: isAuth,
+      };
+    }
+
+    const chainId = chainData.result ? parseInt(chainData.result, 16) : undefined;
+    if (expectedChainId !== undefined && chainId !== expectedChainId) {
+      clearTimeout(timer);
+      return {
+        success: false,
+        blockNumber: 0,
+        chainId,
+        latencyMs: Date.now() - start,
+        error: `Chain ID mismatch: returned ${chainId}, expected ${expectedChainId}`,
+      };
+    }
+
+    // 2. Test eth_blockNumber
+    const blockRes = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
         method: 'eth_blockNumber',
         params: [],
       }),
@@ -141,47 +355,52 @@ export async function testRpcEndpoint(rpcUrl: string, timeoutMs = 6000): Promise
 
     clearTimeout(timer);
 
-    if (!res.ok) {
+    if (!blockRes.ok) {
       return {
         success: false,
         blockNumber: 0,
+        chainId,
         latencyMs: Date.now() - start,
-        error: `HTTP ${res.status}: ${res.statusText}`,
+        error: `RPC HTTP ${blockRes.status}: ${blockRes.statusText}`,
       };
     }
 
-    const data = await res.json() as { jsonrpc?: string; result?: string; error?: { message: string } };
-    if (data.error) {
+    const blockData = (await blockRes.json()) as { jsonrpc?: string; result?: string; error?: { message: string } };
+    if (blockData.error) {
       return {
         success: false,
         blockNumber: 0,
+        chainId,
         latencyMs: Date.now() - start,
-        error: data.error.message || 'RPC Error',
+        error: blockData.error.message || 'Block query error',
       };
     }
 
-    if (!data.result) {
+    if (!blockData.result) {
       return {
         success: false,
         blockNumber: 0,
+        chainId,
         latencyMs: Date.now() - start,
         error: 'Invalid RPC response: missing result',
       };
     }
 
-    const blockNumber = parseInt(data.result, 16);
+    const blockNumber = parseInt(blockData.result, 16);
     return {
       success: true,
       blockNumber,
+      chainId,
       latencyMs: Date.now() - start,
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
+    const isTimeout = errorMsg.includes('aborted') || errorMsg.includes('timeout');
     return {
       success: false,
       blockNumber: 0,
       latencyMs: Date.now() - start,
-      error: errorMsg.includes('aborted') ? 'Connection timed out (>6s)' : errorMsg,
+      error: isTimeout ? `Connection timed out (>${timeoutMs / 1000}s)` : errorMsg,
     };
   }
 }

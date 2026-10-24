@@ -44,39 +44,38 @@ async function run() {
     console.log(`[Standalone] Bot notice: ${res.message}`);
   }
 
-  // Optional lightweight HTTP Health Check for Botkeep / VPS container probes
-  const PORT = process.env.PORT;
-  if (PORT) {
-    const portNum = parseInt(PORT, 10);
-    const healthServer = http.createServer((req, res) => {
-      if (req.url === '/health' || req.url === '/' || req.url === '/status') {
-        const status = {
-          status: 'ok',
-          uptime: process.uptime(),
-          discordBotConnected: discordBot.isConnected(),
-          isMonitoring: db.getSettings().isMonitoring,
-          metrics: db.getMetrics(),
-        };
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(status, null, 2));
-      } else {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-      }
-    });
+  // Lightweight HTTP Health Check for Botkeep / VPS container probes
+  const PORT = process.env.PORT || '3000';
+  const portNum = parseInt(PORT, 10);
+  const healthServer = http.createServer((req, res) => {
+    // Respond 200 OK to any GET/HEAD health probe from Botkeep or external monitoring
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const status = {
+        status: 'ok',
+        uptime: Math.floor(process.uptime()),
+        discordBotConnected: discordBot.isConnected(),
+        isMonitoring: db.getSettings().isMonitoring,
+        metrics: db.getMetrics(),
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(status, null, 2));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    }
+  });
 
-    healthServer.on('error', (err: any) => {
-      if (err.code === 'EADDRINUSE') {
-        console.warn(`[Standalone] Health check port ${portNum} is already in use. Running purely headless.`);
-      } else {
-        console.warn('[Standalone] Health check server notice:', err.message || err);
-      }
-    });
+  healthServer.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Standalone] Health check port ${portNum} is in use. Running purely headless.`);
+    } else {
+      console.warn('[Standalone] Health check server notice:', err.message || err);
+    }
+  });
 
-    healthServer.listen(portNum, '0.0.0.0', () => {
-      console.log(`[Standalone] Health check HTTP listener active on port ${portNum}`);
-    });
-  }
+  healthServer.listen(portNum, '0.0.0.0', () => {
+    console.log(`[Standalone] Health check HTTP listener active on port ${portNum}`);
+  });
 
   // Graceful shutdown hooks
   process.on('SIGINT', () => shutdown('SIGINT'));

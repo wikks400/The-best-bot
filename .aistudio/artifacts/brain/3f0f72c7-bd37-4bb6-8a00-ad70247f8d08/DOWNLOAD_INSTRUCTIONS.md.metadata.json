@@ -1,5 +1,5 @@
 {
-  "summary":  "Updated deployment and download instructions for Botkeep and GitHub push steps with synced package-lock.json.",
-  "updatedAt":  "2026-10-23T16:08:27.762779185Z",
+  "summary":  "Complete Botkeep migration and RPC configuration guide with tested endpoints, environment variable names, and deployment instructions.",
+  "updatedAt":  "2026-10-24T02:58:04.194516448Z",
   "userFacing":  true
 }

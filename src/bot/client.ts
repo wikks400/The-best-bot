@@ -1,5 +1,6 @@
 import {
   Client,
+  Events,
   GatewayIntentBits,
   REST,
   Routes,
@@ -18,6 +19,10 @@ export class DiscordBotService {
   private isReady = false;
 
   public async start(): Promise<{ success: boolean; message: string }> {
+    if (this.client && this.isReady) {
+      return { success: true, message: 'Discord bot client already connected and running.' };
+    }
+
     const token = process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN;
     if (!token) {
       return {
@@ -31,7 +36,7 @@ export class DiscordBotService {
         intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
       });
 
-      this.client.once('ready', async (c) => {
+      this.client.once(Events.ClientReady, async (c) => {
         this.isReady = true;
         console.log(`[Discord Bot] Successfully connected and logged in as ${c.user.tag}!`);
         await this.registerSlashCommands();
