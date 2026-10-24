@@ -40,6 +40,7 @@ export class BlockchainMonitor {
   private timer: NodeJS.Timeout | null = null;
   private backoffMap: Map<string, number> = new Map();
   private errorCountMap: Map<string, number> = new Map();
+  private lastLoggedErrorMap: Map<string, { error: string; timestamp: number }> = new Map();
 
   constructor() {
     // Monitor instance
@@ -195,6 +196,10 @@ export class BlockchainMonitor {
       // Clear backoff and error count on success
       this.backoffMap.delete(network.id);
       this.errorCountMap.delete(network.id);
+      if (this.lastLoggedErrorMap.has(network.id)) {
+        console.log(`[Monitor] Network ${network.name} connection healthy and operational.`);
+        this.lastLoggedErrorMap.delete(network.id);
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       const isAuth =
@@ -204,7 +209,14 @@ export class BlockchainMonitor {
         errorMsg.includes('API key') ||
         errorMsg.includes('authenticate');
 
-      console.warn(`[Monitor] Network ${network.name} poll error: ${errorMsg}`);
+      // Optimized logging: prevent spamming Botkeep container log files
+      const lastLog = this.lastLoggedErrorMap.get(network.id);
+      const now = Date.now();
+      const shouldLog = !lastLog || lastLog.error !== errorMsg || now - lastLog.timestamp > 300000;
+      if (shouldLog) {
+        console.warn(`[Monitor] Network ${network.name} poll error: ${errorMsg}`);
+        this.lastLoggedErrorMap.set(network.id, { error: errorMsg, timestamp: now });
+      }
 
       // Try active validation of fallback RPCs
       let fallbackSuccess = false;

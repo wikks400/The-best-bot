@@ -208,6 +208,22 @@ export class Database {
     } else {
       this.filePath = './data/nft-alert.json';
     }
+
+    // Clean up any stale temporary files from previous abrupt process halts
+    try {
+      const dir = path.dirname(this.filePath);
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+          if (f.endsWith('.tmp')) {
+            try {
+              fs.unlinkSync(path.join(dir, f));
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
     this.data = this.load();
   }
 
@@ -581,6 +597,18 @@ export class Database {
       ...project,
       updatedAt: Date.now(),
     };
+
+    // Keep metadata cache bounded to 500 contracts
+    const keys = Object.keys(this.data.projects);
+    if (keys.length > 500) {
+      const oldestKeys = keys
+        .sort((a, b) => (this.data.projects[a]?.updatedAt || 0) - (this.data.projects[b]?.updatedAt || 0))
+        .slice(0, keys.length - 500);
+      for (const k of oldestKeys) {
+        delete this.data.projects[k];
+      }
+    }
+
     this.save();
   }
 
@@ -603,9 +631,9 @@ export class Database {
     };
 
     this.data.activities.push(fullRecord);
-    // Keep activities capped to last 10,000 to maintain swift execution in free memory
-    if (this.data.activities.length > 10000) {
-      this.data.activities = this.data.activities.slice(-10000);
+    // Keep activities capped to last 3,000 to maintain compact storage and swift execution
+    if (this.data.activities.length > 3000) {
+      this.data.activities = this.data.activities.slice(-3000);
     }
 
     this.save();
@@ -733,6 +761,10 @@ export class Database {
 
   public recordMilestone(milestone: AlertMilestoneRecord) {
     this.data.alerts.push(milestone);
+    // Keep alerts capped to last 1,000 records to prevent unbounded disk growth
+    if (this.data.alerts.length > 1000) {
+      this.data.alerts = this.data.alerts.slice(-1000);
+    }
     this.save();
   }
 
