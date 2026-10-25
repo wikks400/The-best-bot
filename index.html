@@ -4,11 +4,77 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NFT Group Alert - Multi-Chain Discord Bot</title>
-    <meta name="description" content="Free multi-chain EVM NFT minting and purchase monitoring Discord bot with wallet group tracking, milestone alerts (4, 7, 12, 20, 35 wallets), and zero-cost hosting support." />
+    <meta name="description" content="Free multi-chain EVM NFT minting and purchase monitoring Discord bot with wallet group tracking, milestone alerts (3, 7, 12 wallets), and zero-cost hosting support." />
     <meta property="og:title" content="NFT Group Alert - Multi-Chain Discord Bot" />
-    <meta property="og:description" content="Free multi-chain EVM NFT minting and purchase monitoring Discord bot with wallet group tracking, milestone alerts (4, 7, 12, 20, 35 wallets), and zero-cost hosting support." />
+    <meta property="og:description" content="Free multi-chain EVM NFT minting and purchase monitoring Discord bot with wallet group tracking, milestone alerts (3, 7, 12 wallets), and zero-cost hosting support." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        // Prevent Vite HMR WebSocket connection failure in proxy/iframe environment
+        var NativeWebSocket = window.WebSocket;
+        if (NativeWebSocket) {
+          window.WebSocket = function(url, protocols) {
+            var isViteHmr = (typeof protocols === 'string' && protocols.indexOf('vite-hmr') !== -1) ||
+                            (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) ||
+                            (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('vite-hmr') !== -1));
+
+            if (isViteHmr) {
+              var listeners = { open: [], close: [], message: [], error: [] };
+              var fakeWs = {
+                readyState: 1, // OPEN
+                OPEN: 1,
+                CLOSED: 3,
+                CLOSING: 2,
+                CONNECTING: 0,
+                url: url,
+                protocol: 'vite-hmr',
+                addEventListener: function(event, fn) {
+                  if (listeners[event]) listeners[event].push(fn);
+                  if (event === 'open') {
+                    setTimeout(function() {
+                      try { fn({ type: 'open' }); } catch (e) {}
+                    }, 0);
+                  }
+                },
+                removeEventListener: function(event, fn) {
+                  if (listeners[event]) {
+                    listeners[event] = listeners[event].filter(function(l) { return l !== fn; });
+                  }
+                },
+                dispatchEvent: function() { return true; },
+                send: function() {},
+                close: function() {
+                  fakeWs.readyState = 3;
+                  if (listeners.close) {
+                    listeners.close.forEach(function(fn) {
+                      try { fn({ type: 'close', wasClean: true }); } catch (e) {}
+                    });
+                  }
+                }
+              };
+              return fakeWs;
+            }
+            return new NativeWebSocket(url, protocols);
+          };
+
+          window.WebSocket.prototype = NativeWebSocket.prototype;
+          window.WebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+          window.WebSocket.OPEN = NativeWebSocket.OPEN;
+          window.WebSocket.CLOSING = NativeWebSocket.CLOSING;
+          window.WebSocket.CLOSED = NativeWebSocket.CLOSED;
+        }
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (event.reason && (
+            (event.reason.message && (event.reason.message.indexOf('WebSocket') !== -1 || event.reason.message.indexOf('vite-hmr') !== -1)) ||
+            (typeof event.reason === 'string' && event.reason.indexOf('WebSocket') !== -1)
+          )) {
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

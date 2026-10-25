@@ -1,6 +1,80 @@
 {
-  "groups": [],
-  "wallets": [],
+  "groups": [
+    {
+      "id": "grp_1792929343608_nww9y",
+      "name": "Mubby",
+      "description": "User created wallet group",
+      "enabled": true,
+      "createdAt": 1792929343608,
+      "updatedAt": 1792929343608
+    },
+    {
+      "id": "grp_1792929352129_079re",
+      "name": "Testing",
+      "description": "",
+      "enabled": true,
+      "createdAt": 1792929352129,
+      "updatedAt": 1792929352129
+    }
+  ],
+  "wallets": [
+    {
+      "address": "0x5ce09f93063b64d6c12b7e37e1b13d628edef928",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    },
+    {
+      "address": "0xb4292b107ef2ef4189d11609ca7fa5d0c8491986",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    },
+    {
+      "address": "0xb63d5fd2e6c53fe06680c47736aba771211105e4",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    },
+    {
+      "address": "0x4ff44e7a27e90c454b164027e42ba059649e71f4",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    },
+    {
+      "address": "0x59d3ad74bfe450636045404e89099a8b7a3be23b",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    },
+    {
+      "address": "0x7ce9a481113cc2bc25031f4d174337b386635252",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    },
+    {
+      "address": "0x513c6fb442eeac339d278b04abb4c66ed9f0e88c",
+      "label": "",
+      "groupIds": [
+        "grp_1792929343608_nww9y"
+      ],
+      "createdAt": 1792929343609
+    }
+  ],
   "networks": [
     {
       "id": "ethereum",
@@ -8,16 +82,16 @@
       "chainId": 1,
       "rpcUrl": "https://ethereum-rpc.publicnode.com",
       "fallbackRpcs": [
-        "https://rpc.ankr.com/eth",
-        "https://cloudflare-eth.com"
+        "https://1rpc.io/eth",
+        "https://gateway.tenderly.co/public/mainnet"
       ],
       "explorerUrl": "https://etherscan.io",
       "currencySymbol": "ETH",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 26244244,
-      "lastCheckedAt": 1792625040123,
-      "lastLatencyMs": 60,
+      "lastBlockChecked": 26269671,
+      "lastCheckedAt": 1792931059485,
+      "lastLatencyMs": 42,
       "lastError": null,
       "freeTierNotes": "LlamaNodes / Cloudflare public RPC. Rate limit ~20-50 req/s. Max block span recommended: 5-10 blocks."
     },
@@ -28,15 +102,17 @@
       "rpcUrl": "https://base-rpc.publicnode.com",
       "fallbackRpcs": [
         "https://base.llamarpc.com",
-        "https://1rpc.io/base"
+        "https://1rpc.io/base",
+        "https://base.drpc.org",
+        "https://mainnet.base.org"
       ],
       "explorerUrl": "https://basescan.org",
       "currencySymbol": "ETH",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 52917846,
-      "lastCheckedAt": 1792625040254,
-      "lastLatencyMs": 48,
+      "lastBlockChecked": 53070856,
+      "lastCheckedAt": 1792931060180,
+      "lastLatencyMs": 302,
       "lastError": null,
       "freeTierNotes": "Coinbase official public RPC. Generous free tier with sub-second block time."
     },
@@ -52,9 +128,9 @@
       "currencySymbol": "ETH",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 59126598,
-      "lastCheckedAt": 1792625040383,
-      "lastLatencyMs": 58,
+      "lastBlockChecked": 59432648,
+      "lastCheckedAt": 1792931060360,
+      "lastLatencyMs": 45,
       "lastError": null,
       "freeTierNotes": "Kraken Ink Superchain L2. Free official Gelato RPC, zero card needed."
     },
@@ -71,9 +147,9 @@
       "currencySymbol": "ETH",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 517057665,
-      "lastCheckedAt": 1792625040753,
-      "lastLatencyMs": 48,
+      "lastBlockChecked": 518139558,
+      "lastCheckedAt": 1792931060753,
+      "lastLatencyMs": 38,
       "lastError": null,
       "freeTierNotes": "Offchain Labs official free public endpoint. Fast block queries."
     },
@@ -83,15 +159,16 @@
       "chainId": 10,
       "rpcUrl": "https://optimism-rpc.publicnode.com",
       "fallbackRpcs": [
-        "https://optimism.llamarpc.com"
+        "https://optimism.llamarpc.com",
+        "https://1rpc.io/op"
       ],
       "explorerUrl": "https://optimistic.etherscan.io",
       "currencySymbol": "ETH",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 158513132,
-      "lastCheckedAt": 1792625041878,
-      "lastLatencyMs": 1050,
+      "lastBlockChecked": 158666141,
+      "lastCheckedAt": 1792931060911,
+      "lastLatencyMs": 44,
       "lastError": null,
       "freeTierNotes": "OP Foundation public RPC. Free and reliable."
     },
@@ -101,15 +178,16 @@
       "chainId": 137,
       "rpcUrl": "https://polygon-bor-rpc.publicnode.com",
       "fallbackRpcs": [
-        "https://polygon.llamarpc.com"
+        "https://polygon.gateway.tenderly.co",
+        "https://polygon.drpc.org"
       ],
       "explorerUrl": "https://polygonscan.com",
       "currencySymbol": "POL",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 95946419,
-      "lastCheckedAt": 1792625042275,
-      "lastLatencyMs": 304,
+      "lastBlockChecked": 96150460,
+      "lastCheckedAt": 1792931061092,
+      "lastLatencyMs": 48,
       "lastError": null,
       "freeTierNotes": "Polygon Official RPC. Free public tier."
     },
@@ -119,15 +197,17 @@
       "chainId": 56,
       "rpcUrl": "https://bsc-rpc.publicnode.com",
       "fallbackRpcs": [
-        "https://bsc-dataseed.binance.org"
+        "https://bsc-dataseed.binance.org",
+        "https://binance.llamarpc.com",
+        "https://bsc.publicnode.com"
       ],
       "explorerUrl": "https://bscscan.com",
       "currencySymbol": "BNB",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 129025409,
-      "lastCheckedAt": 1792625042921,
-      "lastLatencyMs": 298,
+      "lastBlockChecked": 129705202,
+      "lastCheckedAt": 1792931061502,
+      "lastLatencyMs": 42,
       "lastError": null,
       "freeTierNotes": "Binance public dataseed RPC. Zero cost."
     },
@@ -137,15 +217,16 @@
       "chainId": 43114,
       "rpcUrl": "https://avalanche-c-chain-rpc.publicnode.com",
       "fallbackRpcs": [
-        "https://avalanche.public-rpc.com"
+        "https://avalanche.public-rpc.com",
+        "https://1rpc.io/avax/c"
       ],
       "explorerUrl": "https://snowtrace.io",
       "currencySymbol": "AVAX",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 98189361,
-      "lastCheckedAt": 1792625043321,
-      "lastLatencyMs": 323,
+      "lastBlockChecked": 98514141,
+      "lastCheckedAt": 1792931061896,
+      "lastLatencyMs": 40,
       "lastError": null,
       "freeTierNotes": "Ava Labs official C-Chain RPC. Free public tier."
     },
@@ -161,29 +242,38 @@
       "currencySymbol": "ETH",
       "isEnabled": true,
       "isConnected": true,
-      "lastBlockChecked": 94679400,
-      "lastCheckedAt": 1792625053230,
-      "lastLatencyMs": 45,
+      "lastBlockChecked": 97583836,
+      "lastCheckedAt": 1792931062726,
+      "lastLatencyMs": 478,
       "lastError": null,
       "freeTierNotes": "Robinhood Official Mainnet L2 (Arbitrum Orbit, Chain ID 4663). Zero-card public endpoint active."
     }
   ],
-  "projects": {},
+  "projects": {
+    "4663:0x4e86892cde07a050fe0f9019a11abeb06b7b1bdb": {
+      "contractAddress": "0x4e86892cde07a050fe0f9019a11abeb06b7b1bdb",
+      "chainId": 4663,
+      "name": "Diagnostics",
+      "description": "Verified Robinhood Chain NFT smart contract collection.",
+      "openseaUrl": "https://opensea.io/collection/diagnostics-734540624/overview",
+      "explorerUrl": "https://explorer.chain.robinhood.com/address/0x4e86892cde07a050fe0f9019a11abeb06b7b1bdb",
+      "verified": true,
+      "updatedAt": 1792930764820
+    }
+  },
   "activities": [],
   "alerts": [],
   "settings": {
     "milestones": [
-      4,
+      3,
       7,
-      12,
-      20,
-      35
+      12
     ],
     "channelId": "1561062013336027286",
     "roleId": "1562308693612040192",
     "webhookUrl": "https://discord.com/api/webhooks/1562313131206901783/6myyqrPzz8woHZ5KKl6Lerk1oVaUkoz4pWn-rjStIW3nnyYjefa1TwT85DcxnthLH8Ab",
     "episodeTimeoutHours": 24,
-    "maxAlertsPerEpisode": 5,
+    "maxAlertsPerEpisode": 3,
     "isMonitoring": true,
     "pollIntervalMs": 15000
   }

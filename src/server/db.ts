@@ -22,13 +22,18 @@ interface DatabaseSchema {
   settings: AlertSettings;
 }
 
+const envMilestones = process.env.ALERT_MILESTONES || process.env.MILESTONES;
+const parsedMilestones = envMilestones
+  ? envMilestones.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0)
+  : null;
+
 const DEFAULT_SETTINGS: AlertSettings = {
-  milestones: [4, 7, 12, 20, 35],
+  milestones: parsedMilestones && parsedMilestones.length > 0 ? parsedMilestones : [3, 7, 12],
   channelId: process.env.DISCORD_CHANNEL_ID || '',
   roleId: process.env.DISCORD_ROLE_ID || '',
   webhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
   episodeTimeoutHours: 24,
-  maxAlertsPerEpisode: 5,
+  maxAlertsPerEpisode: 3,
   isMonitoring: true,
   pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '12000', 10),
 };
@@ -257,7 +262,18 @@ export class Database {
           projects: parsed.projects || {},
           activities: parsed.activities || [],
           alerts: parsed.alerts || [],
-          settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
+          settings: {
+            ...DEFAULT_SETTINGS,
+            ...(parsed.settings || {}),
+            milestones: parsedMilestones && parsedMilestones.length > 0
+              ? parsedMilestones
+              : (Array.isArray(parsed.settings?.milestones) && parsed.settings.milestones.length > 0
+                  ? [3, ...parsed.settings.milestones.filter((m: number) => m > 3)].slice(0, 3)
+                  : [3, 7, 12]),
+            maxAlertsPerEpisode: process.env.MAX_ALERTS_PER_EPISODE
+              ? parseInt(process.env.MAX_ALERTS_PER_EPISODE, 10)
+              : (parsed.settings?.maxAlertsPerEpisode === 5 ? 3 : (parsed.settings?.maxAlertsPerEpisode || 3)),
+          },
         };
       }
     } catch (err) {
@@ -614,10 +630,11 @@ export class Database {
 
   // --- Activity Records & Deduplication ---
   public recordActivity(record: Omit<NFTActivityRecord, 'id'>): { record: NFTActivityRecord; isNew: boolean } {
-    // Unique ID combining txHash, activityType, wallet, contract, tokenId
-    const id = `${record.txHash.toLowerCase()}_${record.type}_${record.walletAddress.toLowerCase()}_${record.contractAddress.toLowerCase()}_${record.tokenId || '0'}`;
+    // Unique ID combining chainId, txHash, activityType, wallet, contract, tokenId
+    const id = `${record.chainId}_${record.txHash.toLowerCase()}_${record.type}_${record.walletAddress.toLowerCase()}_${record.contractAddress.toLowerCase()}_${record.tokenId || '0'}`;
+    const legacyId = `${record.txHash.toLowerCase()}_${record.type}_${record.walletAddress.toLowerCase()}_${record.contractAddress.toLowerCase()}_${record.tokenId || '0'}`;
 
-    const existing = this.data.activities.find(a => a.id === id);
+    const existing = this.data.activities.find(a => a.id === id || a.id === legacyId);
     if (existing) {
       return { record: existing, isNew: false };
     }

@@ -147,9 +147,18 @@ async function runTestSuite() {
   assert(smartEntry?.walletCount === 2, 'Smart group has 2 wallets (A and C)');
   assert(breakdown3.totalUniqueCount === 3, 'Overall unique wallet total is 3 (Wallet A counted only once)');
 
-  // Test 4: Initial Alert at 4 Unique Wallets (Section 7)
-  console.log('\nTest Suite 4: Milestone 1 Alert Trigger at Exactly 4 Unique Wallets');
-  // Wallet D mints 4 NFTs -> crosses threshold to 4!
+  // Test 4: Initial Alert at 3 Unique Wallets
+  console.log('\nTest Suite 4: Milestone 1 Alert Trigger at Exactly 3 Unique Wallets');
+  // At 3 unique wallets (Wallets A, B, C), Milestone 1 threshold of 3 is crossed!
+  assert(breakdown3.totalUniqueCount === 3, 'Reached exactly 3 unique wallets for initial alert');
+
+  // Verify group activity formatting text matches section 9 & 10
+  const formattedText3 = formatGroupActivityText(breakdown3.groupBreakdown, breakdown3.totalUniqueCount, breakdown3.totalNfts, 'mint');
+  assert(formattedText3.includes('TOTAL'), 'Formatted text includes TOTAL header');
+  assert(formattedText3.includes('3 unique tracked wallets'), 'Formatted text states 3 unique tracked wallets');
+  assert(formattedText3.includes('6 NFTs minted'), 'Formatted text states 6 NFTs minted');
+
+  // Wallet D mints 4 NFTs -> advances count to 4
   testDb.recordActivity({
     type: 'mint',
     chainId,
@@ -165,16 +174,10 @@ async function runTestSuite() {
   });
 
   const breakdown4 = testDb.calculateGroupBreakdown(chainId, contract, 'mint');
-  assert(breakdown4.totalUniqueCount === 4, 'Reached exactly 4 unique wallets');
+  assert(breakdown4.totalUniqueCount === 4, 'Reached 4 unique wallets');
   assert(breakdown4.totalNfts === 10, 'Total NFTs minted is 10');
 
-  // Verify group activity formatting text matches section 9 & 10
-  const formattedText = formatGroupActivityText(breakdown4.groupBreakdown, breakdown4.totalUniqueCount, breakdown4.totalNfts, 'mint');
-  assert(formattedText.includes('TOTAL'), 'Formatted text includes TOTAL header');
-  assert(formattedText.includes('4 unique tracked wallets'), 'Formatted text states 4 unique tracked wallets');
-  assert(formattedText.includes('10 NFTs minted'), 'Formatted text states 10 NFTs minted');
-
-  // Test 5: Milestone Progression (7, 12, 20, 35 wallets)
+  // Test 5: Milestone Progression (7, 12 wallets)
   console.log('\nTest Suite 5: Milestone Progression & Delta Calculation');
   const mockNet: NetworkConfig = {
     id: 'ethereum',
@@ -201,7 +204,7 @@ async function runTestSuite() {
     website: 'https://testnft.club',
     twitter: 'testnft',
     discord: 'https://discord.gg/test',
-    openseaUrl: `https://opensea.io/assets/ethereum/${contract}`,
+    openseaUrl: `https://opensea.io/collection/test-nft-club/overview`,
     openseaMintUrl: `https://opensea.io/mint/ethereum/${contract}`,
     explorerUrl: `https://etherscan.io/address/${contract}`,
     verified: true,
@@ -288,7 +291,7 @@ async function runTestSuite() {
   assert(robinhoodNet?.isEnabled === true, 'Robinhood Chain is enabled for monitoring');
 
   // OpenSea metadata link test
-  assert(Boolean(mockProject.openseaUrl?.includes('opensea.io/assets/')), 'Generates valid OpenSea collection / asset link');
+  assert(Boolean(mockProject.openseaUrl?.includes('opensea.io/collection/')), 'Generates valid OpenSea collection overview link');
   assert(Boolean(mockProject.openseaMintUrl?.includes('opensea.io/mint/')), 'Generates valid OpenSea mint link');
 
   // Verify OpenSea buy record has price and marketplace preserved
@@ -378,6 +381,85 @@ async function runTestSuite() {
   const authCheck = await testRpcEndpoint('https://rpc.ankr.com/eth', 1, 6000);
   assert(!authCheck.success, 'Correctly flags unauthenticated ankr as failure');
   assert(Boolean(authCheck.isAuthError), 'Correctly identifies authentication error');
+
+  // Test 10: OpenSea API Priority, Unique Alert Limit = 3, & Deduplication
+  console.log('\nTest Suite 10: OpenSea Priority, Alert Limit = 3, & Deduplication');
+  const { isOpenSeaSupported, OPENSEA_UNSUPPORTED_CHAINS, pollOpenSeaForNetwork } = await import('../server/opensea.ts');
+  const { getOrDiscoverProject } = await import('../server/metadata.ts');
+
+  // 10.1 Verify OpenSea chain support mapping
+  assert(isOpenSeaSupported(1), 'Ethereum is supported by OpenSea API');
+  assert(isOpenSeaSupported(8453), 'Base is supported by OpenSea API');
+  assert(isOpenSeaSupported(137), 'Polygon is supported by OpenSea API');
+  assert(isOpenSeaSupported(4663), 'Robinhood Chain is supported by OpenSea API');
+  assert(OPENSEA_UNSUPPORTED_CHAINS.has(57073), 'Ink correctly flagged in unsupported set');
+
+  // 10.2 Verify graceful fallback when OPENSEA_API_KEY is absent
+  const mockRobinhoodNet: NetworkConfig = {
+    id: 'robinhood',
+    name: 'Robinhood Chain',
+    chainId: 4663,
+    rpcUrl: 'https://rpc.mainnet.chain.robinhood.com',
+    fallbackRpcs: [],
+    explorerUrl: 'https://explorer.chain.robinhood.com',
+    currencySymbol: 'ETH',
+    isEnabled: true,
+    isConnected: true,
+    lastBlockChecked: 97223000,
+    lastCheckedAt: Date.now(),
+    lastLatencyMs: 50,
+    lastError: null,
+    freeTierNotes: '',
+  };
+  const osFallbackRes = await pollOpenSeaForNetwork(mockRobinhoodNet, new Set(['0x5ce09f93063b64d6c12b7e37e1b13d628edef928']));
+  assert(!osFallbackRes.prioritized, 'Gracefully falls back to RPC monitoring when OPENSEA_API_KEY is unset');
+
+  // 10.3 Verify Diagnostics collection overview link resolution on Robinhood Chain
+  const diagProject = await getOrDiscoverProject(mockRobinhoodNet, '0x4e86892cde07a050fe0f9019a11abeb06b7b1bdb');
+  assert(diagProject.openseaUrl === 'https://opensea.io/collection/diagnostics-734540624/overview', 'Resolves exact Diagnostics OpenSea collection overview link');
+  assert(diagProject.name === 'Diagnostics', 'Resolves correct collection name from OpenSea');
+
+  // 10.4 Verify unique alert limit strictly equals 3 and initial alert threshold equals 3
+  const settings = testDb.getSettings();
+  assert(settings.maxAlertsPerEpisode === 3, 'Unique alert limit (maxAlertsPerEpisode) is exactly 3');
+  assert(settings.milestones[0] === 3, 'Initial alert threshold is confirmed to be exactly 3 wallets');
+
+  // 10.4 Cross-source deduplication verification
+  const testTxHash = '0xunique_tx_hash_12345';
+  const testContract = '0x1111111111111111111111111111111111111111';
+  const testWallet = '0x2222222222222222222222222222222222222222';
+
+  // First record (e.g. from OpenSea API)
+  const rec1 = testDb.recordActivity({
+    type: 'mint',
+    chainId: 1,
+    chainName: 'Ethereum',
+    contractAddress: testContract,
+    projectName: 'Dedupe Test',
+    walletAddress: testWallet,
+    tokenId: '99',
+    quantity: 1,
+    txHash: testTxHash,
+    blockNumber: 100,
+    timestamp: Date.now(),
+  });
+  assert(rec1.isNew === true, 'First event detection is recorded as new');
+
+  // Second record with same event details (e.g. from RPC monitoring)
+  const rec2 = testDb.recordActivity({
+    type: 'mint',
+    chainId: 1,
+    chainName: 'Ethereum',
+    contractAddress: testContract,
+    projectName: 'Dedupe Test',
+    walletAddress: testWallet,
+    tokenId: '99',
+    quantity: 1,
+    txHash: testTxHash,
+    blockNumber: 100,
+    timestamp: Date.now(),
+  });
+  assert(rec2.isNew === false, 'Duplicate event from alternate source correctly deduplicated and rejected');
 
   // Clean up test DB
   if (fs.existsSync(testDbPath)) {

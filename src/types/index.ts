@@ -101,7 +101,7 @@ export interface AlertSettings {
   roleId: string;
   webhookUrl: string;
   episodeTimeoutHours: number; // default: 24
-  maxAlertsPerEpisode: number; // default: 5
+  maxAlertsPerEpisode: number; // default: 3
   isMonitoring: boolean;
   pollIntervalMs: number; // default 12000
 }

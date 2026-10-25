@@ -197,8 +197,8 @@ export function resolveNetworkRpcs(
       'https://polygon-bor-rpc.publicnode.com',
     ];
   } else if (normId === 'base' || chainId === 8453) {
-    safeDefault = 'https://mainnet.base.org';
-    safeFallbacks = ['https://base.llamarpc.com', 'https://1rpc.io/base', 'https://base.drpc.org'];
+    safeDefault = 'https://1rpc.io/base';
+    safeFallbacks = ['https://base.drpc.org', 'https://mainnet.base.org'];
   } else if (normId === 'ink' || chainId === 57073) {
     safeDefault = 'https://rpc-gel.inkonchain.com';
     safeFallbacks = ['https://rpc.inkonchain.com'];

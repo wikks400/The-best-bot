@@ -3,6 +3,7 @@ import { NetworkConfig, NFTActivityRecord } from '../types/index.ts';
 import { getOrDiscoverProject } from './metadata.ts';
 import { evaluateAndDispatchAlerts } from './alerter.ts';
 import { testRpcEndpoint } from './chains.ts';
+import { pollOpenSeaForNetwork } from './opensea.ts';
 
 // Standard EVM Signatures
 // ERC-721 / ERC-20 Transfer(address,address,uint256)
@@ -112,7 +113,14 @@ export class BlockchainMonitor {
 
     const start = Date.now();
     try {
-      // 1. Fetch latest block number with 10s timeout
+      // 1. Prioritize official OpenSea API v2 when configured for supported networks
+      try {
+        await pollOpenSeaForNetwork(network, trackedAddresses);
+      } catch {
+        // OpenSea API errors safely fail over to RPC monitoring
+      }
+
+      // 2. Fetch latest block number with 10s timeout
       const blockRes = await fetch(network.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -157,21 +165,30 @@ export class BlockchainMonitor {
         return;
       }
 
-      // Clamp max block range to 10 blocks to respect free public RPC limits
-      const maxRange = 10;
+      // On fast block-time chains (Robinhood Chain ID 4663, Base 8453, Arbitrum 42161, Optimism 10), allow dynamic catch-up
+      const isFastL2 = [4663, 8453, 42161, 10, 57073].includes(network.chainId);
+      const maxRange = isFastL2 ? 80 : 15;
       const toBlock = Math.min(latestBlock, fromBlock + maxRange - 1);
 
-      // Query standard ERC-721/ERC-20 Transfer logs where from = 0x0 (Mints)
+      // Convert tracked addresses to 32-byte padded hex topics for targeted, lightning-fast querying
+      const paddedWallets = Array.from(trackedAddresses).map(
+        addr => '0x000000000000000000000000' + addr.slice(2).toLowerCase()
+      );
+      const targetTopic = paddedWallets.length > 0 && paddedWallets.length <= 100 ? paddedWallets : null;
+
+      // Query standard ERC-721/ERC-20 Transfer logs where from = 0x0 and to = tracked wallets
       const mintLogs = await this.queryRpcLogs(network.rpcUrl, fromBlock, toBlock, [
         TRANSFER_EVENT_TOPIC,
         ZERO_ADDRESS_TOPIC,
+        targetTopic,
       ]);
 
-      // Also query ERC-1155 TransferSingle where from = 0x0
+      // Also query ERC-1155 TransferSingle where from = 0x0 and to = tracked wallets
       const erc1155SingleLogs = await this.queryRpcLogs(network.rpcUrl, fromBlock, toBlock, [
         ERC1155_SINGLE_TOPIC,
         null,
         ZERO_ADDRESS_TOPIC,
+        targetTopic,
       ]);
 
       // Process mint logs (standard + OpenSea drops)
@@ -273,7 +290,7 @@ export class BlockchainMonitor {
   /**
    * Helper to query RPC logs
    */
-  private async queryRpcLogs(rpcUrl: string, fromBlock: number, toBlock: number, topics: (string | null)[]): Promise<RawLog[]> {
+  private async queryRpcLogs(rpcUrl: string, fromBlock: number, toBlock: number, topics: (string | string[] | null)[]): Promise<RawLog[]> {
     try {
       const res = await fetch(rpcUrl, {
         method: 'POST',

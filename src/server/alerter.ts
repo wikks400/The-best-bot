@@ -127,10 +127,11 @@ export function buildDiscordEmbed(
 
     // Links
     const links: string[] = [];
+    if (project.openseaUrl) {
+      links.push(`🔗 [OpenSea Collection](${project.openseaUrl})`);
+    }
     if (isMint && project.openseaMintUrl) {
       links.push(`🔗 [OpenSea Mint](${project.openseaMintUrl})`);
-    } else if (project.openseaUrl) {
-      links.push(`🔗 [OpenSea Collection](${project.openseaUrl})`);
     }
     if (project.explorerUrl) {
       links.push(`🔗 [Blockchain Explorer](${project.explorerUrl})`);
@@ -262,8 +263,9 @@ export async function evaluateAndDispatchAlerts(
   const episodeId = db.getEpisodeId(chainId, cleanAddr, activityType);
   const existingMilestones = db.getMilestonesForEpisode(episodeId);
 
-  // If already reached max alerts for episode (default 5), continue tracking silently
-  if (existingMilestones.length >= settings.maxAlertsPerEpisode) {
+  // Enforce unique alert limit (strictly 3 unique alerts per episode)
+  const maxAlerts = settings.maxAlertsPerEpisode || 3;
+  if (existingMilestones.length >= maxAlerts) {
     return null;
   }
 
@@ -271,8 +273,7 @@ export async function evaluateAndDispatchAlerts(
   const breakdownData = db.calculateGroupBreakdown(chainId, cleanAddr, activityType);
   const currentUniqueCount = breakdownData.totalUniqueCount;
 
-  // Milestones: [4, 7, 12, 20, 35]
-  const milestones = settings.milestones || [4, 7, 12, 20, 35];
+  const milestones = settings.milestones || [3, 5, 8, 15, 25];
 
   // Determine what milestone we qualify for
   let highestReachedIndex = -1;
@@ -283,12 +284,15 @@ export async function evaluateAndDispatchAlerts(
   }
 
   if (highestReachedIndex === -1) {
-    // Under 4 wallets, no alert yet
+    // Under milestone threshold, no alert yet
     return null;
   }
 
-  // Check if this milestone index has already been sent
-  const highestIndexToSend = highestReachedIndex + 1; // 1-based (1, 2, 3, 4, 5)
+  // Check if this milestone index has already been sent or exceeds max unique alerts
+  const highestIndexToSend = highestReachedIndex + 1; // 1-based (1, 2, 3)
+  if (highestIndexToSend > maxAlerts) {
+    return null;
+  }
   const alreadySent = existingMilestones.some(m => m.milestoneIndex >= highestIndexToSend);
   if (alreadySent) {
     return null;
