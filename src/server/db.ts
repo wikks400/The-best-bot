@@ -206,12 +206,12 @@ export class Database {
   constructor(filePath?: string) {
     if (filePath) {
       this.filePath = filePath;
-    } else if (process.env.DATABASE_PATH) {
-      this.filePath = process.env.DATABASE_PATH;
     } else if (fs.existsSync('./data/database.json')) {
       this.filePath = './data/database.json';
+    } else if (process.env.DATABASE_PATH && fs.existsSync(process.env.DATABASE_PATH)) {
+      this.filePath = process.env.DATABASE_PATH;
     } else {
-      this.filePath = './data/nft-alert.json';
+      this.filePath = process.env.DATABASE_PATH || './data/database.json';
     }
 
     // Clean up any stale temporary files from previous abrupt process halts
@@ -273,6 +273,9 @@ export class Database {
             maxAlertsPerEpisode: process.env.MAX_ALERTS_PER_EPISODE
               ? parseInt(process.env.MAX_ALERTS_PER_EPISODE, 10)
               : (parsed.settings?.maxAlertsPerEpisode === 5 ? 3 : (parsed.settings?.maxAlertsPerEpisode || 3)),
+            channelId: process.env.DISCORD_CHANNEL_ID || parsed.settings?.channelId || DEFAULT_SETTINGS.channelId || '',
+            roleId: process.env.DISCORD_ROLE_ID || parsed.settings?.roleId || DEFAULT_SETTINGS.roleId || '',
+            webhookUrl: process.env.DISCORD_WEBHOOK_URL || parsed.settings?.webhookUrl || DEFAULT_SETTINGS.webhookUrl || '',
           },
         };
       }

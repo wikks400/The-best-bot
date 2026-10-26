@@ -9,6 +9,8 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
   TextChannel,
+  ChannelType,
+  MessageFlags,
 } from 'discord.js';
 import { db } from '../server/db.ts';
 import { monitor } from '../server/monitor.ts';
@@ -17,11 +19,14 @@ import { testRpcEndpoint } from '../server/chains.ts';
 export class DiscordBotService {
   private client: Client | null = null;
   private isReady = false;
+  private isStarting = false;
+  private inFlightInteractions = new Set<string>();
 
   public async start(): Promise<{ success: boolean; message: string }> {
-    if (this.client && this.isReady) {
-      return { success: true, message: 'Discord bot client already connected and running.' };
+    if (this.isStarting || (this.client && this.isReady)) {
+      return { success: true, message: 'Discord bot client already connected or in-flight login.' };
     }
+    this.isStarting = true;
 
     const token = process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN;
     if (!token) {
@@ -60,12 +65,20 @@ export class DiscordBotService {
 
       this.client.on('interactionCreate', async (interaction) => {
         if (!interaction.isChatInputCommand()) return;
-        await this.handleInteraction(interaction);
+        if (this.inFlightInteractions.has(interaction.id)) return;
+        this.inFlightInteractions.add(interaction.id);
+        try {
+          await this.handleInteraction(interaction);
+        } finally {
+          this.inFlightInteractions.delete(interaction.id);
+        }
       });
 
       await this.client.login(token);
+      this.isStarting = false;
       return { success: true, message: 'Discord bot logged in successfully.' };
     } catch (err) {
+      this.isStarting = false;
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[Discord Bot] Login failed:', msg);
       return { success: false, message: `Discord login failed: ${msg}` };
@@ -77,6 +90,8 @@ export class DiscordBotService {
   }
 
   public async stop() {
+    this.isStarting = false;
+    this.inFlightInteractions.clear();
     if (this.client) {
       try {
         await this.client.destroy();
@@ -111,11 +126,43 @@ export class DiscordBotService {
     try {
       const channel = await this.client.channels.fetch(channelId);
       if (!channel) {
-        return { success: false, error: `Channel ${channelId} not found` };
+        return { success: false, error: `Channel ${channelId} not found. Ensure the bot is invited to the server.` };
+      }
+
+      // Check if channel is a Category
+      if (channel.type === ChannelType.GuildCategory) {
+        const catName = (channel as any).name || 'Alpha';
+        const errorMsg = `Configured channel "${catName}" (${channelId}) is a Discord Category (type: 4), not a text channel. Discord categories cannot receive messages. Configure a text channel inside this category using /alerts-channel or via DISCORD_CHANNEL_ID.`;
+        console.error(`[Discord Bot] Channel Configuration Error: ${errorMsg}`);
+        return { success: false, error: errorMsg };
+      }
+
+      // Check if channel is a Voice or Stage channel
+      if (channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice) {
+        const vName = (channel as any).name || channelId;
+        const errorMsg = `Configured channel "${vName}" (${channelId}) is a Voice channel (type: ${channel.type}). Voice channels cannot receive alert embeds. Please configure a text channel using /alerts-channel.`;
+        console.error(`[Discord Bot] Channel Configuration Error: ${errorMsg}`);
+        return { success: false, error: errorMsg };
       }
 
       if (!channel.isTextBased()) {
-        return { success: false, error: `Channel ${channelId} is not a text-based channel` };
+        const errorMsg = `Channel "${(channel as any).name || channelId}" is an unsupported channel type (${channel.type}). Only standard text or announcement channels can receive alerts.`;
+        console.error(`[Discord Bot] Channel Configuration Error: ${errorMsg}`);
+        return { success: false, error: errorMsg };
+      }
+
+      // Check bot permissions before attempting to post
+      const perms = (channel as TextChannel).permissionsFor(this.client.user!);
+      if (perms) {
+        if (!perms.has(PermissionFlagsBits.ViewChannel)) {
+          return { success: false, error: `Bot lacks 'View Channel' permission in #${(channel as TextChannel).name} (${channelId})` };
+        }
+        if (!perms.has(PermissionFlagsBits.SendMessages)) {
+          return { success: false, error: `Bot lacks 'Send Messages' permission in #${(channel as TextChannel).name} (${channelId})` };
+        }
+        if (!perms.has(PermissionFlagsBits.EmbedLinks)) {
+          return { success: false, error: `Bot lacks 'Embed Links' permission in #${(channel as TextChannel).name} (${channelId})` };
+        }
       }
 
       const embed = new EmbedBuilder()
@@ -214,7 +261,13 @@ export class DiscordBotService {
       new SlashCommandBuilder()
         .setName('alerts-channel')
         .setDescription('Select the Discord notification channel for NFT alerts')
-        .addChannelOption(opt => opt.setName('channel').setDescription('Channel to send alerts to').setRequired(true))
+        .addChannelOption(opt =>
+          opt
+            .setName('channel')
+            .setDescription('Text channel to send alerts to')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(true)
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
       new SlashCommandBuilder()
@@ -264,7 +317,7 @@ export class DiscordBotService {
         const group = db.createGroup(name, desc);
         await interaction.reply({
           content: `✅ Created wallet group **${group.name}** (ID: \`${group.id}\`)`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (commandName === 'group-list') {
         const groups = db.getGroups();
@@ -291,27 +344,27 @@ export class DiscordBotService {
 
         const group = db.getGroupById(groupQuery) || db.getGroupByName(groupQuery);
         if (!group) {
-          await interaction.reply({ content: `❌ Group "${groupQuery}" not found.`, ephemeral: true });
+          await interaction.reply({ content: `❌ Group "${groupQuery}" not found.`, flags: MessageFlags.Ephemeral });
           return;
         }
 
         const { wallet, isNew } = db.addWallet(address, group.id, label);
         await interaction.reply({
           content: `✅ Wallet \`${wallet.address}\`${wallet.label ? ` (${wallet.label})` : ''} added to **${group.name}**! (${isNew ? 'New wallet registered' : 'Added to group'})`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (commandName === 'group-clear') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const groupQuery = interaction.options.getString('group', true);
         const group = db.getGroupById(groupQuery) || db.getGroupByName(groupQuery);
         if (!group) {
-          await interaction.reply({ content: `❌ Group "${groupQuery}" not found.`, ephemeral: true });
+          await interaction.editReply({ content: `❌ Group "${groupQuery}" not found.` });
           return;
         }
 
         const result = db.clearWalletsInGroup(group.id);
-        await interaction.reply({
+        await interaction.editReply({
           content: `✅ Removed all **${result.removedCount}** wallets from group **${group.name}**.`,
-          ephemeral: true,
         });
       } else if (commandName === 'wallet-remove') {
         const groupQuery = interaction.options.getString('group', true);
@@ -319,60 +372,99 @@ export class DiscordBotService {
 
         const group = db.getGroupById(groupQuery) || db.getGroupByName(groupQuery);
         if (!group) {
-          await interaction.reply({ content: `❌ Group "${groupQuery}" not found.`, ephemeral: true });
+          await interaction.reply({ content: `❌ Group "${groupQuery}" not found.`, flags: MessageFlags.Ephemeral });
           return;
         }
 
         // Support removing all wallets via /wallet-remove group:... address:all
         if (address.trim().toLowerCase() === 'all') {
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
           const result = db.clearWalletsInGroup(group.id);
-          await interaction.reply({
+          await interaction.editReply({
             content: `✅ Removed all **${result.removedCount}** wallets from group **${group.name}**.`,
-            ephemeral: true,
           });
           return;
         }
 
         const removed = db.removeWalletFromGroup(address, group.id);
         if (removed) {
-          await interaction.reply({ content: `✅ Removed \`${address}\` from **${group.name}**.`, ephemeral: true });
+          await interaction.reply({ content: `✅ Removed \`${address}\` from **${group.name}**.`, flags: MessageFlags.Ephemeral });
         } else {
-          await interaction.reply({ content: `❌ Wallet not found in group **${group.name}**.`, ephemeral: true });
+          await interaction.reply({ content: `❌ Wallet not found in group **${group.name}**.`, flags: MessageFlags.Ephemeral });
         }
       } else if (commandName === 'wallet-import') {
+        // Acknowledge early within 3s for batch address parsing & DB I/O
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const groupQuery = interaction.options.getString('group', true);
         const raw = interaction.options.getString('addresses', true);
 
         const group = db.getGroupById(groupQuery) || db.getGroupByName(groupQuery);
         if (!group) {
-          await interaction.reply({ content: `❌ Group "${groupQuery}" not found.`, ephemeral: true });
+          await interaction.editReply({ content: `❌ Group "${groupQuery}" not found.` });
           return;
         }
 
         const result = db.importWallets(raw, group.id);
-        await interaction.reply({
+        await interaction.editReply({
           content: `✅ Imported to **${group.name}**:\n• **${result.added}** addresses added\n• **${result.existing}** already in group${result.errors.length > 0 ? `\n⚠️ ${result.errors.length} invalid addresses skipped` : ''}`,
-          ephemeral: true,
         });
       } else if (commandName === 'monitor') {
         const action = interaction.options.getString('action', true);
         if (action === 'start') {
           db.updateSettings({ isMonitoring: true });
           monitor.start();
-          await interaction.reply({ content: '🟢 Multi-chain monitoring started!', ephemeral: true });
+          await interaction.reply({ content: '🟢 Multi-chain monitoring started!', flags: MessageFlags.Ephemeral });
         } else {
           db.updateSettings({ isMonitoring: false });
           monitor.stop();
-          await interaction.reply({ content: '🔴 Multi-chain monitoring paused.', ephemeral: true });
+          await interaction.reply({ content: '🔴 Multi-chain monitoring paused.', flags: MessageFlags.Ephemeral });
         }
       } else if (commandName === 'alerts-channel') {
         const channel = interaction.options.getChannel('channel', true);
+
+        // Check if category channel was passed
+        if (channel.type === ChannelType.GuildCategory) {
+          await interaction.reply({
+            content: `❌ **Cannot use a Category as an alert channel.**\n"${channel.name}" (${channel.id}) is a Category, not a text channel. Please select an actual text channel inside it (such as a text channel like #alpha)!`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        // Check if channel is text-based (standard text or announcement)
+        if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+          await interaction.reply({
+            content: `❌ **Unsupported Channel Type:**\nChannel <#${channel.id}> is not a text channel. Please choose a standard text or announcement channel.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        // Check bot permissions on the chosen channel
+        const perms = 'permissionsFor' in channel && typeof (channel as any).permissionsFor === 'function'
+          ? (channel as any).permissionsFor(interaction.client.user!)
+          : null;
+        if (perms) {
+          const missing: string[] = [];
+          if (!perms.has(PermissionFlagsBits.ViewChannel)) missing.push('View Channel');
+          if (!perms.has(PermissionFlagsBits.SendMessages)) missing.push('Send Messages');
+          if (!perms.has(PermissionFlagsBits.EmbedLinks)) missing.push('Embed Links');
+
+          if (missing.length > 0) {
+            await interaction.reply({
+              content: `⚠️ **Insufficient Bot Permissions:**\nThe bot is missing the following permissions in <#${channel.id}>: **${missing.join(', ')}**.\nPlease grant these permissions to the bot role before using this channel.`,
+              flags: MessageFlags.Ephemeral,
+            });
+            return;
+          }
+        }
+
         db.updateSettings({ channelId: channel.id });
-        await interaction.reply({ content: `🔔 Alerts channel set to <#${channel.id}>`, ephemeral: true });
+        await interaction.reply({ content: `🔔 Alerts channel set to <#${channel.id}> (#${channel.name})!`, flags: MessageFlags.Ephemeral });
       } else if (commandName === 'alerts-role') {
         const role = interaction.options.getRole('role');
         db.updateSettings({ roleId: role ? role.id : '' });
-        await interaction.reply({ content: role ? `👥 Mention role set to <@&${role.id}>` : '👥 Mention role cleared.', ephemeral: true });
+        await interaction.reply({ content: role ? `👥 Mention role set to <@&${role.id}>` : '👥 Mention role cleared.', flags: MessageFlags.Ephemeral });
       } else if (commandName === 'alert-settings') {
         const milestonesInput = interaction.options.getString('milestones');
         const episodeHours = interaction.options.getInteger('episode_hours');
@@ -395,10 +487,10 @@ export class DiscordBotService {
         const current = db.getSettings();
         await interaction.reply({
           content: `⚙️ **Current Alert Settings:**\n• Milestones: [${current.milestones.join(', ')}] unique wallets\n• Initial Alert: **${current.milestones[0]}** wallets\n• Episode Reset Window: **${current.episodeTimeoutHours}h**\n• Alerts Channel: ${current.channelId ? `<#${current.channelId}>` : '*Not set*'}\n• Role Mention: ${current.roleId ? `<@&${current.roleId}>` : '*None*'}`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (commandName === 'status') {
-        // Build detailed status embed meeting section 15 requirements
+        // Acknowledge immediately before querying network latencies to prevent 10062 Unknown interaction
         await interaction.deferReply();
         const networks = db.getNetworks();
         const settings = db.getSettings();
@@ -442,13 +534,28 @@ export class DiscordBotService {
 
         await interaction.editReply({ embeds: [embed] });
       }
-    } catch (err) {
-      console.error(`[Discord Bot] Error executing /${commandName}:`, err);
+    } catch (err: any) {
+      console.error(`[Discord Bot] Error executing /${commandName}:`, err?.message || err);
+      const isDiscordTimingError =
+        err?.code === 10062 ||
+        err?.code === 40060 ||
+        err?.rawError?.code === 10062 ||
+        err?.rawError?.code === 40060;
+
+      if (isDiscordTimingError) {
+        // Interaction expired or already acknowledged - do not attempt another response to avoid repeat DiscordAPIError loops
+        return;
+      }
+
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ content: `❌ Error: ${msg}` });
-      } else {
-        await interaction.reply({ content: `❌ Error: ${msg}`, ephemeral: true });
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply({ content: `❌ Error: ${msg}` });
+        } else {
+          await interaction.reply({ content: `❌ Error: ${msg}`, flags: MessageFlags.Ephemeral });
+        }
+      } catch (nestedErr: any) {
+        console.warn(`[Discord Bot] Suppressed secondary interaction error for /${commandName}:`, nestedErr?.message || nestedErr);
       }
     }
   }

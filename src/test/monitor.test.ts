@@ -461,6 +461,31 @@ async function runTestSuite() {
   });
   assert(rec2.isNew === false, 'Duplicate event from alternate source correctly deduplicated and rejected');
 
+  // Test 11: Discord Alert Channel Type Validation & Configuration
+  console.log('\nTest Suite 11: Discord Alert Channel Type Validation & Configuration');
+  const { db } = await import('../server/db.ts');
+  const prodSettings = db.getSettings();
+  assert(Boolean(prodSettings.webhookUrl && prodSettings.webhookUrl.includes('discord.com/api/webhooks/')), 'Webhook URL is preserved and configured');
+
+  // Verify that testDb can configure and persist text channel ID
+  testDb.updateSettings({ channelId: '1561061232121749618' });
+  const updatedSettings = testDb.getSettings();
+  assert(updatedSettings.channelId === '1561061232121749618', 'Alert channel ID can be configured to text channel #alpha (1561061232121749618)');
+
+  // Verify that sendChannelAlert validates non-connected state safely
+  const { discordBot } = await import('../bot/client.ts');
+  const dummyAlert = {
+    title: 'Test Alert',
+    color: 0x10b981,
+    fields: []
+  };
+  // When bot is not connected in local mock environment, returns clear state error
+  if (!discordBot.isConnected()) {
+    const offlineRes = await discordBot.sendChannelAlert(updatedSettings.channelId, dummyAlert);
+    assert(!offlineRes.success, 'Returns false when bot client is disconnected');
+    assert(Boolean(offlineRes.error?.includes('not connected')), 'Provides clear connection state error');
+  }
+
   // Clean up test DB
   if (fs.existsSync(testDbPath)) {
     fs.unlinkSync(testDbPath);
