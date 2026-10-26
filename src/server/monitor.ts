@@ -2,7 +2,7 @@ import { db } from './db.ts';
 import { NetworkConfig, NFTActivityRecord } from '../types/index.ts';
 import { getOrDiscoverProject } from './metadata.ts';
 import { evaluateAndDispatchAlerts } from './alerter.ts';
-import { testRpcEndpoint } from './chains.ts';
+import { testRpcEndpoint, sanitizeRpcUrl, isDefunctRpc } from './chains.ts';
 import { pollOpenSeaForNetwork } from './opensea.ts';
 
 // Standard EVM Signatures
@@ -103,15 +103,157 @@ export class BlockchainMonitor {
   }
 
   /**
+   * Resiliently fetches the latest block number for a network, attempting primary RPC
+   * and iterating through fallback RPCs upon any network error or timeout.
+   */
+  private async fetchBlockNumberWithFailover(
+    network: NetworkConfig
+  ): Promise<{ latestBlock: number; latencyMs: number }> {
+    const candidateEndpoints = [network.rpcUrl, ...(network.fallbackRpcs || [])].filter(
+      (url, idx, self) => url && !isDefunctRpc(url) && self.indexOf(url) === idx
+    );
+
+    let lastError: Error | null = null;
+    for (const url of candidateEndpoints) {
+      const start = Date.now();
+      try {
+        const blockRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(7000),
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_blockNumber',
+            params: [],
+          }),
+        });
+
+        if (!blockRes.ok) {
+          throw new Error(`RPC HTTP ${blockRes.status}`);
+        }
+
+        const blockData = (await blockRes.json()) as { result?: string; error?: { message: string } };
+        if (blockData.error) {
+          throw new Error(blockData.error.message || 'Block query error');
+        }
+        if (!blockData.result) {
+          throw new Error('Invalid block response: missing result');
+        }
+
+        const latestBlock = parseInt(blockData.result, 16);
+        const latencyMs = Date.now() - start;
+
+        // If a fallback was required, promote it to active primary RPC in the database
+        if (url !== network.rpcUrl) {
+          console.log(
+            `[Monitor] Failover triggered for ${network.name}: Switched active RPC from ${sanitizeRpcUrl(network.rpcUrl)} to ${sanitizeRpcUrl(url)}`
+          );
+          const updatedFallbacks = network.fallbackRpcs.filter(f => f !== url && !isDefunctRpc(f));
+          if (!isDefunctRpc(network.rpcUrl)) {
+            updatedFallbacks.push(network.rpcUrl);
+          }
+          db.updateNetwork(network.id, {
+            rpcUrl: url,
+            fallbackRpcs: updatedFallbacks,
+          });
+          network.rpcUrl = url;
+          network.fallbackRpcs = updatedFallbacks;
+        }
+
+        return { latestBlock, latencyMs };
+      } catch (err: any) {
+        lastError = err;
+        console.warn(
+          `[Monitor] ${network.name} blockNumber query failed on ${sanitizeRpcUrl(url)}: ${err?.message || err}. Checking next endpoint...`
+        );
+      }
+    }
+
+    throw new Error(`All blockNumber endpoints failed for ${network.name}: ${lastError?.message || 'Timeout / network failure'}`);
+  }
+
+  /**
+   * Resiliently queries RPC logs with automatic fallback rotation if the primary endpoint times out or fails.
+   */
+  private async queryRpcLogsWithFailover(
+    network: NetworkConfig,
+    fromBlock: number,
+    toBlock: number,
+    topics: (string | string[] | null)[]
+  ): Promise<RawLog[]> {
+    const candidateEndpoints = [network.rpcUrl, ...(network.fallbackRpcs || [])].filter(
+      (url, idx, self) => url && !isDefunctRpc(url) && self.indexOf(url) === idx
+    );
+
+    let lastError: Error | null = null;
+    for (const url of candidateEndpoints) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(8000),
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_getLogs',
+            params: [
+              {
+                fromBlock: `0x${fromBlock.toString(16)}`,
+                toBlock: `0x${toBlock.toString(16)}`,
+                topics,
+              },
+            ],
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`RPC HTTP ${res.status}`);
+        }
+
+        const json = (await res.json()) as { result?: RawLog[]; error?: { message: string } };
+        if (json.error) {
+          throw new Error(json.error.message || 'getLogs error');
+        }
+
+        if (Array.isArray(json.result)) {
+          if (url !== network.rpcUrl) {
+            console.log(
+              `[Monitor] Fallback successful for ${network.name}: Switched active RPC to ${sanitizeRpcUrl(url)}`
+            );
+            const updatedFallbacks = network.fallbackRpcs.filter(f => f !== url && !isDefunctRpc(f));
+            if (!isDefunctRpc(network.rpcUrl)) {
+              updatedFallbacks.push(network.rpcUrl);
+            }
+            db.updateNetwork(network.id, {
+              rpcUrl: url,
+              fallbackRpcs: updatedFallbacks,
+            });
+            network.rpcUrl = url;
+            network.fallbackRpcs = updatedFallbacks;
+          }
+          return json.result;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(
+          `[Monitor] ${network.name} getLogs query failed on ${sanitizeRpcUrl(url)}: ${err?.message || err}. Checking next endpoint...`
+        );
+      }
+    }
+
+    throw new Error(`All getLogs endpoints failed for ${network.name}: ${lastError?.message || 'RPC log failure'}`);
+  }
+
+  /**
    * Poll an individual network using free public RPC and safe block windows
    */
   public async pollNetwork(network: NetworkConfig, trackedAddresses: Set<string>): Promise<void> {
     const currentBackoff = this.backoffMap.get(network.id) || 0;
     if (currentBackoff > Date.now()) {
-      return; // Skip cycle if backing off from RPC 429
+      return; // Skip cycle if backing off from RPC error
     }
 
-    const start = Date.now();
     try {
       // 1. Prioritize official OpenSea API v2 when configured for supported networks
       try {
@@ -120,30 +262,8 @@ export class BlockchainMonitor {
         // OpenSea API errors safely fail over to RPC monitoring
       }
 
-      // 2. Fetch latest block number with 10s timeout
-      const blockRes = await fetch(network.rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_blockNumber',
-          params: [],
-        }),
-      });
-
-      if (!blockRes.ok) {
-        throw new Error(`RPC HTTP ${blockRes.status}`);
-      }
-
-      const blockData = await blockRes.json() as { result?: string; error?: { message: string } };
-      if (!blockData.result) {
-        throw new Error(blockData.error?.message || 'Invalid block response');
-      }
-
-      const latestBlock = parseInt(blockData.result, 16);
-      const latencyMs = Date.now() - start;
+      // 2. Fetch latest block number with failover to fallbacks
+      const { latestBlock, latencyMs } = await this.fetchBlockNumberWithFailover(network);
 
       // Initialize checkpoint if first run
       let fromBlock = network.lastBlockChecked;
@@ -177,14 +297,14 @@ export class BlockchainMonitor {
       const targetTopic = paddedWallets.length > 0 && paddedWallets.length <= 100 ? paddedWallets : null;
 
       // Query standard ERC-721/ERC-20 Transfer logs where from = 0x0 and to = tracked wallets
-      const mintLogs = await this.queryRpcLogs(network.rpcUrl, fromBlock, toBlock, [
+      const mintLogs = await this.queryRpcLogsWithFailover(network, fromBlock, toBlock, [
         TRANSFER_EVENT_TOPIC,
         ZERO_ADDRESS_TOPIC,
         targetTopic,
       ]);
 
       // Also query ERC-1155 TransferSingle where from = 0x0 and to = tracked wallets
-      const erc1155SingleLogs = await this.queryRpcLogs(network.rpcUrl, fromBlock, toBlock, [
+      const erc1155SingleLogs = await this.queryRpcLogsWithFailover(network, fromBlock, toBlock, [
         ERC1155_SINGLE_TOPIC,
         null,
         ZERO_ADDRESS_TOPIC,
@@ -195,13 +315,13 @@ export class BlockchainMonitor {
       await this.processMintLogs(network, [...mintLogs, ...erc1155SingleLogs], trackedAddresses);
 
       // Query OpenSea Seaport marketplace purchases (OrderFulfilled)
-      const seaportLogs = await this.queryRpcLogs(network.rpcUrl, fromBlock, toBlock, [
+      const seaportLogs = await this.queryRpcLogsWithFailover(network, fromBlock, toBlock, [
         SEAPORT_ORDER_FULFILLED_TOPIC,
       ]);
 
       await this.processSeaportLogs(network, seaportLogs, trackedAddresses);
 
-      // Update network checkpoint
+      // Update network checkpoint only when log fetch and processing succeeded
       db.updateNetwork(network.id, {
         isConnected: true,
         lastBlockChecked: toBlock,
@@ -217,16 +337,10 @@ export class BlockchainMonitor {
         console.log(`[Monitor] Network ${network.name} connection healthy and operational.`);
         this.lastLoggedErrorMap.delete(network.id);
       }
-    } catch (err) {
+    } catch (err: any) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      const isAuth =
-        errorMsg.includes('Unauthorized') ||
-        errorMsg.includes('401') ||
-        errorMsg.includes('403') ||
-        errorMsg.includes('API key') ||
-        errorMsg.includes('authenticate');
 
-      // Optimized logging: prevent spamming Botkeep container log files
+      // Optimized rate-limited logging: prevent spamming Botkeep container log files
       const lastLog = this.lastLoggedErrorMap.get(network.id);
       const now = Date.now();
       const shouldLog = !lastLog || lastLog.error !== errorMsg || now - lastLog.timestamp > 300000;
@@ -235,89 +349,17 @@ export class BlockchainMonitor {
         this.lastLoggedErrorMap.set(network.id, { error: errorMsg, timestamp: now });
       }
 
-      // Try active validation of fallback RPCs
-      let fallbackSuccess = false;
-      if (network.fallbackRpcs && network.fallbackRpcs.length > 0) {
-        for (const candidate of network.fallbackRpcs) {
-          if (!candidate || candidate === network.rpcUrl) continue;
+      // Increment consecutive error count and apply exponential backoff (15s -> 30s -> 60s -> 120s max)
+      const count = (this.errorCountMap.get(network.id) || 0) + 1;
+      this.errorCountMap.set(network.id, count);
+      const backoffMs = Math.min(120000, 15000 * Math.pow(2, Math.min(count - 1, 3)));
+      this.backoffMap.set(network.id, Date.now() + backoffMs);
 
-          try {
-            const check = await testRpcEndpoint(candidate, network.chainId, 5000);
-            if (check.success) {
-              console.log(`[Monitor] Verified healthy fallback for ${network.name}: ${candidate} (Chain ID: ${check.chainId}, Block: ${check.blockNumber})`);
-
-              const updatedFallbacks = network.fallbackRpcs.filter(f => f !== candidate);
-              // Only re-queue previous RPC if it wasn't an auth/forbidden error
-              if (!isAuth && !network.rpcUrl.includes('ankr.com') && !network.rpcUrl.includes('cloudflare')) {
-                updatedFallbacks.push(network.rpcUrl);
-              }
-
-              db.updateNetwork(network.id, {
-                rpcUrl: candidate,
-                fallbackRpcs: updatedFallbacks,
-                isConnected: true,
-                lastError: null,
-                lastCheckedAt: Date.now(),
-              });
-
-              this.backoffMap.delete(network.id);
-              this.errorCountMap.delete(network.id);
-              fallbackSuccess = true;
-              break;
-            }
-          } catch {
-            // candidate failed, continue checking others
-          }
-        }
-      }
-
-      if (!fallbackSuccess) {
-        // Increment consecutive error count and apply exponential backoff (15s -> 30s -> 60s -> 120s max)
-        const count = (this.errorCountMap.get(network.id) || 0) + 1;
-        this.errorCountMap.set(network.id, count);
-        const backoffMs = Math.min(120000, 15000 * Math.pow(2, Math.min(count - 1, 3)));
-        this.backoffMap.set(network.id, Date.now() + backoffMs);
-
-        db.updateNetwork(network.id, {
-          isConnected: false,
-          lastError: errorMsg,
-          lastCheckedAt: Date.now(),
-        });
-      }
-    }
-  }
-
-  /**
-   * Helper to query RPC logs
-   */
-  private async queryRpcLogs(rpcUrl: string, fromBlock: number, toBlock: number, topics: (string | string[] | null)[]): Promise<RawLog[]> {
-    try {
-      const res = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_getLogs',
-          params: [
-            {
-              fromBlock: `0x${fromBlock.toString(16)}`,
-              toBlock: `0x${toBlock.toString(16)}`,
-              topics,
-            },
-          ],
-        }),
+      db.updateNetwork(network.id, {
+        isConnected: false,
+        lastError: errorMsg,
+        lastCheckedAt: Date.now(),
       });
-
-      if (!res.ok) return [];
-      const json = (await res.json()) as { result?: RawLog[]; error?: { message: string } };
-      if (json.error) {
-        return [];
-      }
-      return json.result || [];
-    } catch {
-      return [];
     }
   }
 

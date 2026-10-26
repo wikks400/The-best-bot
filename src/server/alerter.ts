@@ -219,17 +219,26 @@ export async function sendDiscordWebhook(
   webhookUrl: string,
   embed: DiscordEmbedPayload,
   roleId?: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; isUnknownWebhook?: boolean }> {
   try {
-    if (!webhookUrl) {
-      return { success: false, error: 'Webhook URL not configured' };
+    if (!webhookUrl || !webhookUrl.trim()) {
+      return { success: false, error: 'Configuration variable DISCORD_WEBHOOK_URL is not configured.' };
+    }
+
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl.startsWith('https://discord.com/api/webhooks/') && !cleanUrl.startsWith('https://discordapp.com/api/webhooks/')) {
+      return {
+        success: false,
+        error: 'Configuration variable DISCORD_WEBHOOK_URL is malformed. Expected a Discord webhook URL (https://discord.com/api/webhooks/...).',
+      };
     }
 
     const content = roleId ? `<@&${roleId}>` : undefined;
 
-    const res = await fetch(webhookUrl, {
+    const res = await fetch(cleanUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         content,
         embeds: [embed],
@@ -238,6 +247,25 @@ export async function sendDiscordWebhook(
 
     if (!res.ok) {
       const text = await res.text();
+      let isUnknownWebhook = false;
+      try {
+        const json = JSON.parse(text);
+        if (json.code === 10015 || res.status === 404) {
+          isUnknownWebhook = true;
+        }
+      } catch {
+        if (res.status === 404) isUnknownWebhook = true;
+      }
+
+      if (isUnknownWebhook) {
+        return {
+          success: false,
+          isUnknownWebhook: true,
+          error:
+            'The webhook configured in DISCORD_WEBHOOK_URL was deleted in Discord (Error 10015: Unknown Webhook). Please recreate a new webhook in Discord Channel Settings > Integrations and update DISCORD_WEBHOOK_URL in Botkeep / environment variables.',
+        };
+      }
+
       return { success: false, error: `Discord Webhook HTTP ${res.status}: ${text}` };
     }
 
@@ -263,9 +291,10 @@ export async function evaluateAndDispatchAlerts(
   const episodeId = db.getEpisodeId(chainId, cleanAddr, activityType);
   const existingMilestones = db.getMilestonesForEpisode(episodeId);
 
-  // Enforce unique alert limit (strictly 3 unique alerts per episode)
+  // Enforce unique alert limit (strictly 3 unique alerts per episode for successfully sent alerts)
   const maxAlerts = settings.maxAlertsPerEpisode || 3;
-  if (existingMilestones.length >= maxAlerts) {
+  const sentMilestones = existingMilestones.filter(m => m.status === 'sent');
+  if (sentMilestones.length >= maxAlerts) {
     return null;
   }
 
@@ -273,7 +302,7 @@ export async function evaluateAndDispatchAlerts(
   const breakdownData = db.calculateGroupBreakdown(chainId, cleanAddr, activityType);
   const currentUniqueCount = breakdownData.totalUniqueCount;
 
-  const milestones = settings.milestones || [3, 5, 8, 15, 25];
+  const milestones = settings.milestones || [3, 7, 12];
 
   // Determine what milestone we qualify for
   let highestReachedIndex = -1;
@@ -288,18 +317,18 @@ export async function evaluateAndDispatchAlerts(
     return null;
   }
 
-  // Check if this milestone index has already been sent or exceeds max unique alerts
+  // Check if this milestone index has already been successfully sent
   const highestIndexToSend = highestReachedIndex + 1; // 1-based (1, 2, 3)
   if (highestIndexToSend > maxAlerts) {
     return null;
   }
-  const alreadySent = existingMilestones.some(m => m.milestoneIndex >= highestIndexToSend);
+  const alreadySent = sentMilestones.some(m => m.milestoneIndex >= highestIndexToSend);
   if (alreadySent) {
     return null;
   }
 
   // Previous wallet count for milestone delta
-  const lastSentMilestone = existingMilestones.length > 0 ? existingMilestones[existingMilestones.length - 1] : null;
+  const lastSentMilestone = sentMilestones.length > 0 ? sentMilestones[sentMilestones.length - 1] : null;
   const previousWalletCount = lastSentMilestone ? lastSentMilestone.totalUniqueWallets : 0;
   const newWalletsSinceLast = Math.max(0, currentUniqueCount - previousWalletCount);
 
@@ -329,36 +358,40 @@ export async function evaluateAndDispatchAlerts(
 
   let alertDispatched = false;
 
-  // 1. Send via Discord Bot client directly to the configured channel
-  if (settings.channelId && discordBot.isConnected()) {
+  // 1. Try Discord Webhook if configured
+  if (settings.webhookUrl && settings.webhookUrl.trim()) {
+    const webhookRes = await sendDiscordWebhook(settings.webhookUrl, embed, settings.roleId);
+    if (webhookRes.success) {
+      alertDispatched = true;
+      console.log(`[Alerter] Successfully dispatched milestone alert to Discord webhook.`);
+    } else {
+      if (webhookRes.isUnknownWebhook) {
+        console.warn(`[Alerter] Webhook Notice: ${webhookRes.error}`);
+      } else {
+        console.warn(`[Alerter] Discord webhook delivery error: ${webhookRes.error}`);
+      }
+    }
+  }
+
+  // 2. If webhook was NOT dispatched (not configured or failed), use Discord Bot text channel fallback
+  // (Prevents duplicate delivery through both webhook and channel fallback)
+  if (!alertDispatched && settings.channelId && discordBot.isConnected()) {
+    console.log(`[Alerter] Attempting alert delivery via Discord Bot text channel #${settings.channelId}...`);
     const channelRes = await discordBot.sendChannelAlert(settings.channelId, embed, settings.roleId);
     if (channelRes.success) {
       alertDispatched = true;
       console.log(`[Alerter] Successfully dispatched milestone alert to channel #${settings.channelId}`);
     } else {
-      console.warn(`[Alerter] Bot channel alert error: ${channelRes.error}`);
+      console.warn(`[Alerter] Bot channel delivery error: ${channelRes.error}`);
     }
   }
 
-  // 2. Send via Discord Webhook if configured
-  if (settings.webhookUrl) {
-    const webhookRes = await sendDiscordWebhook(settings.webhookUrl, embed, settings.roleId);
-    if (webhookRes.success) {
-      alertDispatched = true;
-      console.log(`[Alerter] Successfully dispatched milestone alert to Discord webhook`);
-    } else {
-      console.warn(`[Alerter] Discord webhook error: ${webhookRes.error}`);
-    }
-  }
-
-  // Update record status
+  // Update record status accurately: never report success when delivery failed
   if (alertDispatched) {
-    milestoneRecord.status = 'sent';
-  } else if (!settings.channelId && !settings.webhookUrl) {
-    // If no alert channel or webhook configured yet, mark sent for internal activity tracking
     milestoneRecord.status = 'sent';
   } else {
     milestoneRecord.status = 'failed';
+    console.error(`[Alerter] Milestone alert delivery failed for ${project.name} (${cleanAddr}). Status marked as failed.`);
   }
 
   // Record milestone in DB to prevent duplicates even after server restart
